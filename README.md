@@ -1,6 +1,6 @@
 # Pulsoo
 
-Aplicativo independente por cliente, em desenvolvimento local (0.2). Memória e fila no PostgreSQL da própria VPS; uma instalação e uma réplica por cliente. Implantação e integrações reais ainda em homologação.
+Aplicativo independente por cliente (0.2), com primeira instalação na VPS em homologação. Memória e fila no PostgreSQL da própria VPS; uma instalação e uma réplica por cliente. Implantação e integrações reais ainda em homologação.
 
 ## Operação enxuta
 
@@ -41,7 +41,7 @@ Desenvolvimento: npm run dev (interface em 5173, API em 3081). Laboratório perm
 
 ## Produção na VPS
 
-Preparação fornecida, ainda não implantada/homologada:
+Procedimento para novas instalações:
 
 1. Configurar .env: DEMO_MODE=false, STORAGE_DRIVER=postgres, APP_URL HTTPS, ADMIN_EMAIL, ADMIN_PASSWORD >= 12 e SESSION_SECRET >= 32.
 2. Definir POSTGRES_PASSWORD e PULSOO_DB_PASSWORD diferentes, preferencialmente hexadecimais para evitar escape na URL.
@@ -59,9 +59,15 @@ Segredos e endereço da Central ficam somente no servidor; não usar variáveis 
 
 Com o módulo Propostas: catálogo em centavos, modelos locais, snapshot imutável, PDF, aprovação humana autenticada por versão e envio textual pela Central. APPROVAL_WEBHOOK_URL recebe aviso com link para revisão. Aprovação por um “sim” em grupo não está liberada.
 
+## Controle de consumo
+
+Por padrão, cada turno permite uma consulta a especialista (até três chamadas: principal, especialista e resposta final). `AGENT_MAX_DELEGATIONS=0` desliga delegações; o intervalo permitido é 0–3. `AGENT_CONTEXT_CHARS=24000` limita o histórico recente e `AGENT_MAX_OUTPUT_TOKENS=700` limita cada resposta do principal. Esses limites não constituem um teto financeiro: instruções, ferramentas e respostas intermediárias também consomem tokens.
+
+Cada chamada registra uso imediatamente, mesmo se uma etapa posterior falhar. Falhas sem relatório de uso ficam com custo desconhecido. O motor revalida cancelamento antes da próxima chamada paga. O laboratório real aceita seis testes de texto e três prévias de voz por minuto por origem de requisição; simulação não usa os provedores.
+
 ## Limites atuais
 
-- Nenhuma conta externa foi conectada/homologada. “Credencial configurada” não equivale a conexão testada.
+- A primeira instalação está publicada com PostgreSQL e HTTPS. O webhook foi ativado na Central; atendimento real de ponta a ponta e integrações ainda precisam de homologação. “Credencial configurada” não equivale a conexão testada.
 - O motor reativo e a fila de follow-up estão implementados, com testes de contratos simulados; falta homologação real de ponta a ponta.
 - Mensagem operacional é enviada inteira (até 4.000 caracteres), preservando parágrafos. Vários balões/atrasos são prévia do laboratório; entrega parcial precisa de conciliação própria.
 - Voz: cliente ElevenLabs e prévia real no laboratório. A Central já tem contrato de mídia; síntese e envio automático ainda precisam ser ligados ao motor do Pulsoo.

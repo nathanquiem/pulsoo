@@ -110,6 +110,11 @@ export function publicSafe<T>(value: T, c: Config): T {
     c.assemblyKey,
     c.google.clientSecret,
     c.google.refreshToken,
+    c.calKey,
+    c.approvalWebhook,
+    c.databaseUrl ?? "",
+    c.password,
+    c.secret,
   ];
   for (const secret of secrets)
     if (secret) serialized = serialized.split(secret).join("[protegido]");
@@ -453,63 +458,72 @@ export async function buildApp(c: Config, store: Store) {
       return settings;
     }),
   );
-  app.post("/api/lab/chat", async (req) => {
-    const input = z
-      .object({
-        messages: z
-          .array(
-            z
-              .object({
-                role: z.enum(["user", "assistant"]),
-                content: z.string().min(1).max(4000),
-              })
-              .strict(),
-          )
-          .min(1)
-          .max(20),
-        mode: z.enum(["simulation", "live"]),
-        kind: z.enum(["reply", "followup"]).default("reply"),
-      })
-      .strict()
-      .parse(req.body);
-    const result = await runLab(
-      store,
-      c,
-      publicSafe(input.messages, c),
-      input.mode,
-      input.kind,
-    );
-    return publicSafe(result, c);
-  });
-  app.post("/api/lab/voice", async (req, reply) => {
-    if (c.demo) throw new DomainError("voz_real_desativada_na_simulacao", 409);
-    const { text } = z
-      .object({ text: z.string().min(1).max(1500) })
-      .strict()
-      .parse(req.body);
-    if (!c.voiceId) throw new DomainError("configure_a_voz", 409);
-    const safeText = publicSafe(text, c);
-    const audio = await new MediaClient({
-      eleven: c.elevenKey,
-      assembly: c.assemblyKey,
-    }).synthesize(safeText, c.voiceId);
-    await store.transaction((tx) =>
-      tx.put("usage", {
-        ...base(),
-        provider: "ElevenLabs",
-        model: "eleven_multilingual_v2",
-        task: "prévia de voz",
-        environment: "lab",
-        inputTokens: 0,
-        outputTokens: 0,
-        characters: safeText.length,
-        estimatedCostMicros: null,
-        currency: "USD",
-        status: "success",
-      }),
-    );
-    return reply.type("audio/mpeg").send(audio);
-  });
+  app.post(
+    "/api/lab/chat",
+    { config: { rateLimit: { max: c.demo ? 60 : 6, timeWindow: "1 minute" } } },
+    async (req) => {
+      const input = z
+        .object({
+          messages: z
+            .array(
+              z
+                .object({
+                  role: z.enum(["user", "assistant"]),
+                  content: z.string().min(1).max(4000),
+                })
+                .strict(),
+            )
+            .min(1)
+            .max(20),
+          mode: z.enum(["simulation", "live"]),
+          kind: z.enum(["reply", "followup"]).default("reply"),
+        })
+        .strict()
+        .parse(req.body);
+      const result = await runLab(
+        store,
+        c,
+        publicSafe(input.messages, c),
+        input.mode,
+        input.kind,
+      );
+      return publicSafe(result, c);
+    },
+  );
+  app.post(
+    "/api/lab/voice",
+    { config: { rateLimit: { max: c.demo ? 60 : 3, timeWindow: "1 minute" } } },
+    async (req, reply) => {
+      if (c.demo)
+        throw new DomainError("voz_real_desativada_na_simulacao", 409);
+      const { text } = z
+        .object({ text: z.string().min(1).max(1500) })
+        .strict()
+        .parse(req.body);
+      if (!c.voiceId) throw new DomainError("configure_a_voz", 409);
+      const safeText = publicSafe(text, c);
+      const audio = await new MediaClient({
+        eleven: c.elevenKey,
+        assembly: c.assemblyKey,
+      }).synthesize(safeText, c.voiceId);
+      await store.transaction((tx) =>
+        tx.put("usage", {
+          ...base(),
+          provider: "ElevenLabs",
+          model: "eleven_multilingual_v2",
+          task: "prévia de voz",
+          environment: "lab",
+          inputTokens: 0,
+          outputTokens: 0,
+          characters: safeText.length,
+          estimatedCostMicros: null,
+          currency: "USD",
+          status: "success",
+        }),
+      );
+      return reply.type("audio/mpeg").send(audio);
+    },
+  );
   app.post("/api/webhooks/central", async (req, reply) => {
     const timestamp = string(req.headers["x-central-timestamp"]),
       signature = string(req.headers["x-central-assinatura"]),

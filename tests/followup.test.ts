@@ -438,3 +438,22 @@ test("pausa e encerramento locais persistem após novo webhook com permissão da
     );
   }
 });
+
+test("erro após cancelamento de geração preserva cancelado em vez de criar bloqueio falso", async () => {
+  const f = await fixture();
+  f.advance("2026-11-03T10:00:03Z");
+  await processRuntime(f.s, f.config, {
+    ...f.deps,
+    generate: async () => {
+      await f.s.transaction((tx) =>
+        syncConversationGate(tx, f.contactId, false, false),
+      );
+      throw new Error("geração cancelada");
+    },
+  });
+  assert.equal(
+    (await f.s.transaction((tx) => tx.list("runtimeJob")))[0].state,
+    "cancelled",
+  );
+  assert.equal(f.counts().sent, 0);
+});

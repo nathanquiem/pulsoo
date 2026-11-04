@@ -306,3 +306,48 @@ test("áudio recebido cancela follow-up e aguarda conteúdo antes de gerar respo
     "paused",
   );
 });
+
+test("laboratório real limita disparos mesmo quando o provedor não está configurado", async (t) => {
+  const c = readConfig({
+    ...env,
+    DEMO_MODE: "false",
+    ADMIN_PASSWORD: "senha-ficticia-segura",
+    ADMIN_EMAIL: "admin@example.test",
+  });
+  const s = await new LocalStore().init();
+  await seedDemo(s);
+  const app = await buildApp(c, s);
+  t.after(() => app.close());
+  const login = await app.inject({
+    method: "POST",
+    url: "/api/login",
+    payload: { email: c.email, password: c.password },
+  });
+  assert.equal(login.statusCode, 200);
+  const cookie = login.cookies.find((k) => k.name === "pulsoo")!;
+  const request = {
+    method: "POST" as const,
+    url: "/api/lab/chat",
+    cookies: { pulsoo: cookie.value },
+    payload: { messages: [{ role: "user", content: "Olá" }], mode: "live" },
+  };
+  for (let i = 0; i < 6; i++)
+    assert.equal((await app.inject(request)).statusCode, 409);
+  assert.equal((await app.inject(request)).statusCode, 429);
+});
+test("respostas públicas também protegem segredos de sessão, banco e conectores", () => {
+  const c = readConfig({
+    ...env,
+    ADMIN_PASSWORD: "senha-ficticia-segura",
+    CALCOM_API_KEY: "cal-chave-ficticia",
+    DATABASE_URL: "postgresql://app:senha-ficticia@banco/pulsoo",
+  });
+  const safe = JSON.stringify(
+    publicSafe(
+      { text: [c.password, c.secret, c.calKey, c.databaseUrl].join(" ") },
+      c,
+    ),
+  );
+  for (const key of [c.password, c.secret, c.calKey, c.databaseUrl!])
+    assert.equal(safe.includes(key), false);
+});

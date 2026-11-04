@@ -1,6 +1,6 @@
 # Primeiro teste do Pulsoo
 Atualizado em 04/11/2026. Roteiro de homologação por instalação no Coolify.
-Estado: demonstração local disponível; implantação na VPS e credenciais pendentes. Este arquivo não comprova deploy.
+Estado em 04/11/2026: primeira implantação no Coolify concluída, PostgreSQL saudável, HTTPS e /health validados. Credenciais informadas pelo operador e webhook ativado na Central. Atendimento e ferramentas reais continuam em homologação.
 
 ## Papéis e ferramentas
 O principal mantém a conversa e decide quando consultar um especialista.
@@ -12,7 +12,7 @@ No código atual, o principal possui consultar_especialista com specialist e que
 Exemplo:
 lead pergunta -> principal solicita especialista de qualificação -> backend entrega contexto -> especialista identifica necessidade e pergunta pendente -> principal responde -> backend revalida pausa e envia pela Central.
 
-Uma consulta pode envolver principal + especialista + retorno ao principal, portanto várias chamadas pagas. Não é obrigatório consultar em toda mensagem. Começar com um único modelo e somente especialistas úteis facilita medir qualidade e consumo.
+Uma consulta pode envolver principal + especialista + retorno ao principal, portanto várias chamadas pagas. O padrão permite uma consulta por turno; AGENT_MAX_DELEGATIONS aceita 0–3. Histórico recente limitado a 24.000 caracteres (AGENT_CONTEXT_CHARS) e saída do principal a 700 tokens (AGENT_MAX_OUTPUT_TOKENS). O uso é registrado a cada chamada e chamadas posteriores são canceladas se o atendimento tiver sido pausado. Não é obrigatório consultar em toda mensagem. Começar com um único modelo e somente especialistas úteis facilita medir qualidade e consumo.
 
 Referência de protocolo: [OpenAI Docs — function calling](https://developers.openai.com/api/docs/guides/function-calling).
 

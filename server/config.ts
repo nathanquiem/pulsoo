@@ -1,6 +1,18 @@
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
 export type Config = ReturnType<typeof readConfig>;
+function limit(
+  value: string | undefined,
+  fallback: number,
+  min: number,
+  max: number,
+) {
+  if (!value?.trim()) return fallback;
+  const result = Number(value);
+  if (!Number.isInteger(result) || result < min || result > max)
+    throw new Error("Limite de IA inválido na configuração.");
+  return result;
+}
 export function readConfig(env: NodeJS.ProcessEnv = process.env) {
   const production = env.NODE_ENV === "production",
     demo = env.DEMO_MODE === "true";
@@ -67,6 +79,11 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
     )
       ? env.CENTRAL_CHANNEL_MODE
       : "unknown") as "evolution" | "official" | "unknown",
+    agentLimits: {
+      maxDelegations: limit(env.AGENT_MAX_DELEGATIONS, 1, 0, 3),
+      contextChars: limit(env.AGENT_CONTEXT_CHARS, 24000, 4000, 64000),
+      outputTokens: limit(env.AGENT_MAX_OUTPUT_TOKENS, 700, 128, 1600),
+    },
     runtimeDir: env.RUNTIME_DIR ?? ".runtime",
   };
 }

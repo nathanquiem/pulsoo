@@ -235,7 +235,27 @@ export async function processRuntime(
       environment: "production",
     };
     const result = await (
-      deps.generate ?? ((input) => generateAgent(store, c, input))
+      deps.generate ??
+      ((input) =>
+        generateAgent(store, c, input, {
+          canContinue: () =>
+            store.transaction(async (tx) => {
+              const latest = await tx.get("runtimeJob", job.id);
+              const cv = await tx.get("conversation", job.conversationId);
+              const contact = await tx.get("contact", job.contactId);
+              const op = await operation(tx);
+              return (
+                latest?.state === "running" &&
+                cv?.cycle === job.cycle &&
+                cv.status === "active" &&
+                !cv.deliveryUnknown &&
+                !!contact?.automationAllowed &&
+                op.revision === job.policyRevision &&
+                (op.agentEnabled || (c.demo && !!job.demoOnly)) &&
+                (job.kind !== "followup" || op.followup.enabled)
+              );
+            }),
+        }))
     )(input);
     const dispatch = await store.transaction(async (tx) => {
       const latest = await tx.get("runtimeJob", job.id),
@@ -397,6 +417,7 @@ export async function processRuntime(
       e instanceof IntegrationError ? e.code : "falha_na_geracao_ou_envio";
     await store.transaction(async (tx) => {
       const latest = await tx.get("runtimeJob", job.id);
+      if (!dispatched && latest?.state === "cancelled") return;
       await tx.put("runtimeJob", {
         ...(latest ?? job),
         state: uncertain ? "unknown" : "blocked",
