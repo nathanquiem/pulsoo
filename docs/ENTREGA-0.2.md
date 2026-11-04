@@ -55,3 +55,12 @@ Nenhum código Fazer AI incorporado. A implementação e os contratos são próp
 Implementados modo de teste por telefone, revalidação antes de gerar/enviar, solicitação humana pelo principal, pausa durável ao receber fotos e nota com resumo na Central por job independente. O roteiro da operação e o número autorizado foram preparados somente em arquivo privado ignorado pelo Git; o PDF do cliente não foi incorporado ao repositório público. Fotos ficam para o humano, sem chamada de visão. Transferência remota de responsável e aviso para grupo não fazem parte desse recurso.
 
 Nesta revisão, Pulsoo e Coolify apresentaram timeout simultâneo antes de qualquer novo deploy. Acesso à VPS e configuração de produção dependem da retomada da conexão; não confundir a prévia local com uma implantação concluída.
+
+## Implantação do encaminhamento — 04/11/2026
+
+- Deploy do commit 34c679fd1a4aec8212a7df561aa0c9adbef55817 concluído com sucesso no recurso exclusivo do Pulsoo. Acesso retomado pelo Chrome do operador; a rota /health respondeu status ok.
+- Configuração privada da primeira operação aplicada no PostgreSQL e conferida após recarregar: piloto limitado a um número autorizado, encaminhamento humano, pausa em fotos e registro de resumo habilitados. Módulos comerciais e especialistas de consulta continuam desligados para reduzir chamadas.
+- Um teste OpenAI real com o roteiro configurado solicitou humano diante de uma dúvida técnica sem confirmar segurança. A decisão apareceu no trace do laboratório, sem envio externo nem alteração de conversa real.
+- Verificação do código: 62 testes, 61 aprovados e um PostgreSQL descartável condicional ignorado; TypeScript e build aprovados. Nenhuma nova dependência nesta alteração.
+- Atendimento do piloto habilitado somente para novas mensagens do número autorizado. Teste WhatsApp de ponta a ponta, chegada de imagem, nota realmente gravada na Central e follow-up com tarefa concluída aguardam validação com o operador. Presença de credencial não comprova escopo notas:escrever ou funcionamento da nota remota.
+- Roteiro e telefone do operador não foram publicados no repositório. A interface mostra a pausa local; não transfere responsável na Central nem envia aviso para grupo.
