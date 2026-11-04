@@ -74,7 +74,7 @@ Cada chamada registra uso imediatamente, mesmo se uma etapa posterior falhar. Fa
 - Áudio recebido pausa a geração até conteúdo disponível; AssemblyAI possui cliente, mas transcrição durável ainda não está ligada ao motor.
 - Docs/Drive/Sheets/Calendar/Cal.com têm clientes HTTP testados com mocks; OAuth de recursos, ferramentas de escrita, reserva e sincronização ainda não foram liberados ao agente.
 - Propostas geram PDF local; anexos, importação e emissão completa com Google Docs ainda faltam.
-- Notas internas são locais. A Central já permite acrescentar notas sem substituir conteúdo humano; o Pulsoo ainda precisa conectar essa escrita. Leitura confiável de notas/histórico exige contrato adicional.
+- Encaminhamento humano pausa a IA e a cadência no Pulsoo. Fotos podem dispará-lo sem análise automática de imagem. Um job opcional acrescenta resumo nas notas da Central (notas:escrever), sem substituir a equipe. Não transfere responsável nem envia aviso para grupo. Leitura confiável de notas/histórico ainda exige contrato adicional.
 - Consumo OpenAI por chamada/modelo é registrado. Tarifas, fatura e custos de chamadas que terminam sem usage ainda precisam de conciliação; valores desconhecidos não são inventados.
 - Outros provedores de IA, busca documental e base vetorial continuam no planejamento.
 

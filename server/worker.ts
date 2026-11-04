@@ -1,4 +1,4 @@
-import { operation } from "./operation.js";
+import { operation, testContactAllowed } from "./operation.js";
 import type { Config } from "./config.js";
 import type { Store } from "./store.js";
 import type { Job, Proposal } from "../shared/model.js";
@@ -72,6 +72,7 @@ export async function processOne(
       (p.status !== "queued" ||
         !p.approvedBy ||
         !contact?.automationAllowed ||
+        !testContactAllowed(await operation(tx), contact) ||
         new Date(p.validUntil).getTime() <= Date.now())
     ) {
       await tx.put("job", {

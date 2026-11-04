@@ -6,7 +6,8 @@ import type {
   FollowupExecution,
 } from "../shared/model.js";
 import { base } from "./domain.js";
-import { operation } from "./operation.js";
+import { operation, testContactAllowed, isRecordJob } from "./operation.js";
+import { requestHuman } from "./handoff.js";
 import { armFollowup, nextBusinessTime } from "./followup.js";
 import { generateAgent, type AgentInput, type AgentResult } from "./agent.js";
 import { CentralClient } from "./integrations/central.js";
@@ -17,6 +18,10 @@ type Sender = {
     text: string,
     intentId: string,
   ): Promise<{ mensagem: { id: string; status: string } }>;
+  recordHandoffNote?(
+    handoff: import("../shared/model.js").HumanHandoff,
+    attempt: number,
+  ): Promise<{ nota: { id: string } }>;
   recordCompletedFollowup(
     execution: FollowupExecution,
     attempt: number,
@@ -27,7 +32,7 @@ export async function recoverRuntimeJobs(store: Store) {
   await store.transaction(async (tx) => {
     for (const j of await tx.list("runtimeJob"))
       if (j.state === "running" || j.state === "dispatching") {
-        if (j.state === "dispatching" && j.kind !== "record_followup") {
+        if (j.state === "dispatching" && !isRecordJob(j.kind)) {
           await tx.put("runtimeJob", {
             ...j,
             state: "unknown",
@@ -60,7 +65,7 @@ export async function processRuntime(
       .filter((j) => j.state === "pending" && new Date(j.dueAt) <= at)
       .sort((a, b) => a.dueAt.localeCompare(b.dueAt))[0];
     if (!j) return;
-    if (j.kind === "record_followup") {
+    if (isRecordJob(j.kind)) {
       await tx.put("runtimeJob", {
         ...j,
         state: "running",
@@ -75,21 +80,23 @@ export async function processRuntime(
         ? "agente_desativado"
         : !conversation || !contact
           ? "contexto_ausente"
-          : !contact.automationAllowed
-            ? "automacao_pausada"
-            : conversation.status !== "active"
-              ? "conversa_inativa"
-              : conversation.deliveryUnknown
-                ? "entrega_pendente_de_conciliacao"
-                : conversation.cycle !== j.cycle
-                  ? "lead_respondeu"
-                  : j.policyRevision !== op.revision
-                    ? "configuracao_alterada"
-                    : op.followup.terminalStages
-                          .map((s) => s.toLowerCase())
-                          .includes(conversation.stage.toLowerCase())
-                      ? "qualificacao_encerrada"
-                      : "";
+          : !testContactAllowed(op, contact)
+            ? "fora_do_contato_de_teste"
+            : !contact.automationAllowed
+              ? "automacao_pausada"
+              : conversation.status !== "active"
+                ? "conversa_inativa"
+                : conversation.deliveryUnknown
+                  ? "entrega_pendente_de_conciliacao"
+                  : conversation.cycle !== j.cycle
+                    ? "lead_respondeu"
+                    : j.policyRevision !== op.revision
+                      ? "configuracao_alterada"
+                      : op.followup.terminalStages
+                            .map((s) => s.toLowerCase())
+                            .includes(conversation.stage.toLowerCase())
+                        ? "qualificacao_encerrada"
+                        : "";
     if (reason) {
       await cancel(tx, j, reason);
       return;
@@ -157,6 +164,62 @@ export async function processRuntime(
     return { ...j, attempts: j.attempts + 1 };
   });
   if (!job) return false;
+  if (job.kind === "record_handoff") {
+    const handoff = await store.transaction((tx) =>
+      tx.get("handoff", job.executionId ?? ""),
+    );
+    if (!handoff) {
+      await store.transaction((tx) =>
+        tx.put("runtimeJob", {
+          ...job,
+          state: "blocked",
+          lastError: "encaminhamento_ausente",
+        }),
+      );
+      return true;
+    }
+    try {
+      if (!c.demo && !sender.recordHandoffNote)
+        throw new IntegrationError("registro_de_nota_indisponivel");
+      const result = c.demo
+        ? { nota: { id: handoff.id } }
+        : await sender.recordHandoffNote!(handoff, job.attempts);
+      await store.transaction(async (tx) => {
+        await tx.put("handoff", {
+          ...handoff,
+          noteState: "done",
+          centralNoteId: c.demo ? undefined : result.nota.id,
+          lastError: undefined,
+        });
+        await tx.put("runtimeJob", { ...job, state: "done" });
+      });
+    } catch (e) {
+      const retry =
+        e instanceof IntegrationError &&
+        (e.uncertain || (e.httpStatus ?? 0) >= 500) &&
+        job.attempts < 6;
+      const reason =
+        e instanceof IntegrationError
+          ? e.code
+          : "falha_ao_registrar_encaminhamento";
+      await store.transaction(async (tx) => {
+        await tx.put("handoff", {
+          ...handoff,
+          noteState: retry ? "pending" : "blocked",
+          lastError: reason,
+        });
+        await tx.put("runtimeJob", {
+          ...job,
+          state: retry ? "pending" : "blocked",
+          lastError: reason,
+          dueAt: new Date(
+            now().getTime() + Math.min(3600000, 60000 * 2 ** job.attempts),
+          ).toISOString(),
+        });
+      });
+    }
+    return true;
+  }
   if (job.kind === "record_followup") {
     const execution = await store.transaction((tx) =>
       tx.get("followup", job.executionId ?? ""),
@@ -250,6 +313,7 @@ export async function processRuntime(
                 cv.status === "active" &&
                 !cv.deliveryUnknown &&
                 !!contact?.automationAllowed &&
+                testContactAllowed(op, contact) &&
                 op.revision === job.policyRevision &&
                 (op.agentEnabled || (c.demo && !!job.demoOnly)) &&
                 (job.kind !== "followup" || op.followup.enabled)
@@ -269,6 +333,7 @@ export async function processRuntime(
         conversation.cycle !== job.cycle ||
         conversation.status !== "active" ||
         !contact?.automationAllowed ||
+        !testContactAllowed(op, contact) ||
         conversation.deliveryUnknown ||
         op.revision !== job.policyRevision ||
         (!op.agentEnabled && !(c.demo && job.demoOnly)) ||
@@ -314,6 +379,15 @@ export async function processRuntime(
           return;
         }
       }
+      if (result.handoff && !op.handoff?.enabled)
+        throw new IntegrationError("encaminhamento_desativado");
+      if (result.handoff)
+        await requestHuman(
+          tx,
+          conversation,
+          result.handoff.reason,
+          result.handoff.summary,
+        );
       const executionId = job.kind === "followup" ? base().id : undefined;
       await tx.put("runtimeJob", {
         ...latest,

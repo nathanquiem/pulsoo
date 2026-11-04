@@ -1,7 +1,7 @@
 import type { Operation, Conversation, RuntimeJob } from "../shared/model.js";
 import type { Tx } from "./store.js";
 import { base } from "./domain.js";
-import { operation } from "./operation.js";
+import { operation, isRecordJob, testContactAllowed } from "./operation.js";
 const dayMap: Record<string, number> = {
   Mon: 1,
   Tue: 2,
@@ -50,7 +50,7 @@ export async function cancelPending(
     if (
       job.conversationId === conversationId &&
       ["pending", "running"].includes(job.state) &&
-      job.kind !== "record_followup"
+      !isRecordJob(job.kind)
     )
       await tx.put("runtimeJob", {
         ...job,
@@ -80,7 +80,7 @@ export async function armFollowup(
   )
     return;
   const contact = await tx.get("contact", conversation.contactId);
-  if (!contact?.automationAllowed) return;
+  if (!contact?.automationAllowed || !testContactAllowed(op, contact)) return;
   const dueAt = nextBusinessTime(
     new Date(from.getTime() + op.followup.steps[step].delayMinutes * 60000),
     op.followup,
@@ -150,10 +150,19 @@ export async function observeInbound(
     lastInboundAt: input.occurredAt,
     lastOutboundAt: previous?.lastOutboundAt,
     followupStep: 0,
+    handoffId: previous?.handoffId,
+    manualState: previous?.manualState,
+    deliveryUnknown: previous?.deliveryUnknown,
   };
   await tx.put("conversation", c);
   const op = await operation(tx);
-  if (op.agentEnabled && input.allow && c.status === "active")
+  const contact = await tx.get("contact", input.contactId);
+  if (
+    op.agentEnabled &&
+    input.allow &&
+    c.status === "active" &&
+    testContactAllowed(op, contact)
+  )
     await tx.put("runtimeJob", {
       ...base("reply:" + c.id + ":" + c.cycle),
       kind: "reply",

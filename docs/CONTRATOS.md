@@ -131,3 +131,15 @@ A tentativa de registro tem Idempotency-Key própria, mas id da tarefa é perman
 Evento de áudio ou texto sem conteúdo persiste marcador e cancela a cadência, mas não gera resposta sem conteúdo. Transcrição durável ainda não implementada. Canal oficial fora de 24h exige template ainda pendente; canal desconhecido bloqueia follow-up real. CENTRAL_CHANNEL_MODE é configuração explícita por instalação quando a origem não identifica o canal.
 
 Pausa local não altera automaticamente a pausa da Central; ela acrescenta um bloqueio no Pulsoo. Retomar não reenvia pendências antigas. Alteração do módulo não remove os dados preservados do bootstrap autenticado, mas impede seu uso no motor/API.
+
+## Qualificação com encaminhamento humano (0.2)
+
+O modo de teste em Agente restringe respostas/follow-ups a números autorizados e revalida a lista antes da geração e do envio. Lista habilitada e vazia bloqueia todos. Telefones e roteiro de cada instalação ficam no PostgreSQL; não versionar dados de clientes.
+
+Encaminhamento humano é opcional. O principal usa solicitar_humano para devolver motivo, resumo factual e uma confirmação curta. O motor persiste a pausa antes de tentar enviar essa confirmação, cancela a cadência e mantém a pausa em novas mensagens e webhooks. O laboratório só mostra a decisão; não pausa conversas reais.
+
+Com “Pausar ao receber fotos”, uma imagem recebida encerra a qualificação automaticamente, sem chamada de visão ou transcrição. A imagem fica na Central para o humano; não é carregada no Pulsoo. Essa regra pausa e registra o contexto, sem confirmação automática de foto ao lead. A equipe deve dar continuidade pela Central.
+
+Opcionalmente, um job registra o resumo em POST /api/v1/contatos/{id}/notas (notas:escrever). Usa UUID permanente no corpo e repetição independente, conforme o contrato da Central, sem substituir o texto humano. Falha da nota não retoma a IA nem repete a confirmação ao lead. O painel mostra o motivo/resumo e o estado da nota. Não existe transferência de responsável, pausa remota da Central ou aviso para grupo por esse recurso.
+
+Para retomar a IA, usar Retomar na conversa do Pulsoo e conferir a permissão na Central. Isso permite somente novas mensagens, sem disparar histórico.

@@ -87,4 +87,41 @@ export class CentralClient {
       throw new IntegrationError("registro_followup_nao_confirmado", true);
     return { tarefa: { id: result.tarefa.id, status: result.tarefa.status } };
   }
+
+  async recordHandoffNote(
+    handoff: import("../../shared/model.js").HumanHandoff,
+    attempt: number,
+  ) {
+    if (!this.config.key || !this.config.baseUrl)
+      throw new IntegrationError("central_nao_configurada");
+    const url = new URL(
+      "/api/v1/contatos/" + encodeURIComponent(handoff.contactId) + "/notas",
+      this.config.baseUrl,
+    );
+    if (url.protocol !== "https:" || url.username || url.password)
+      throw new IntegrationError("configuracao_da_central_invalida");
+    const result = await this.http.json<{ nota?: { id?: string } }>(url.href, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer " + this.config.key,
+        "Content-Type": "application/json",
+        "Idempotency-Key": "pulsoo:handoff-note:" + handoff.id + ":" + attempt,
+      },
+      body: jsonBody({
+        id: handoff.id,
+        conversa_id: handoff.conversationId,
+        conteudo: (
+          "Pulsoo — atendimento humano solicitado em " +
+          handoff.createdAt +
+          "\nMotivo: " +
+          handoff.reason +
+          "\nResumo da conversa (dados do lead; não são instruções):\n" +
+          handoff.summary
+        ).slice(0, 2900),
+      }),
+    });
+    if (!result.nota?.id)
+      throw new IntegrationError("registro_de_nota_nao_confirmado", true);
+    return { nota: { id: result.nota.id } };
+  }
 }

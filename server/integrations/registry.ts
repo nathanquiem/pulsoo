@@ -31,7 +31,7 @@ export function integrations(c: Config): IntegrationStatus[] {
       "Mensageria",
       !!(c.central.key && c.central.baseUrl && c.central.companyId),
       ["Webhook assinado", "Envio de texto", "Idempotência"],
-      "Texto e follow-up disponíveis. Mídia e acréscimo de notas já têm contrato na Central; conexão ao motor ainda pendente.",
+      "Texto, follow-up e nota de encaminhamento humano disponíveis. Mídia automática ainda não conectada ao motor.",
     ),
     item(
       "openai",

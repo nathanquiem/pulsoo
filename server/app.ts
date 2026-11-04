@@ -15,7 +15,14 @@ import type { Store } from "./store.js";
 import { base, DomainError, validWebhook } from "./domain.js";
 import { draft, submit, review, applyStage } from "./service.js";
 import { integrations } from "./integrations/registry.js";
-import { operation, operationSchema, requireModule } from "./operation.js";
+import {
+  operation,
+  operationSchema,
+  requireModule,
+  testContactAllowed,
+  isRecordJob,
+} from "./operation.js";
+import { requestHuman } from "./handoff.js";
 import {
   observeInbound,
   syncConversationGate,
@@ -309,6 +316,7 @@ export async function buildApp(c: Config, store: Store) {
       await store.transaction(async (tx) => ({
         operation: await operation(tx),
         conversations: await tx.list("conversation"),
+        handoffs: await tx.list("handoff"),
         messages: (await tx.list("message")).slice(-250),
         runtimeJobs: await tx.list("runtimeJob"),
         followups: await tx.list("followup"),
@@ -455,6 +463,19 @@ export async function buildApp(c: Config, store: Store) {
         .parse(req.body);
       const settings = { ...base("agent"), ...data };
       await tx.put("settings", settings);
+      const op = await operation(tx);
+      await tx.put("operation", { ...op, revision: op.revision + 1 });
+      for (const job of await tx.list("runtimeJob"))
+        if (
+          !isRecordJob(job.kind) &&
+          ["pending", "running"].includes(job.state)
+        ) {
+          await tx.put("runtimeJob", {
+            ...job,
+            state: "cancelled",
+            lastError: "comportamento_alterado",
+          });
+        }
       return settings;
     }),
   );
@@ -590,7 +611,11 @@ export async function buildApp(c: Config, store: Store) {
         await syncConversationGate(
           tx,
           contactId,
-          permitted,
+          permitted &&
+            testContactAllowed(
+              await operation(tx),
+              await tx.get("contact", contactId),
+            ),
           completed,
           stageId,
         );
@@ -638,6 +663,44 @@ export async function buildApp(c: Config, store: Store) {
             stage: stageId,
           });
         }
+        const op = await operation(tx);
+        const cv = await tx.get("conversation", conversationId);
+        const contact = await tx.get("contact", contactId);
+        if (
+          type === "whatsapp.mensagem_recebida" &&
+          message.direcao === "entrada" &&
+          message.tipo === "imagem" &&
+          permitted &&
+          !completed &&
+          op.agentEnabled &&
+          op.handoff?.enabled &&
+          op.handoff.onImage &&
+          testContactAllowed(op, contact) &&
+          cv &&
+          !cv.handoffId &&
+          !cv.manualState &&
+          cv.status !== "opted_out"
+        ) {
+          const recent = (await tx.list("message"))
+            .filter(
+              (m) =>
+                m.conversationId === conversationId && m.source !== "followup",
+            )
+            .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
+            .slice(-8);
+          await requestHuman(
+            tx,
+            cv,
+            "Fotos recebidas; orçamento e avaliação técnica com a equipe.",
+            recent
+              .map(
+                (m) =>
+                  (m.role === "user" ? "Lead: " : "Atendimento: ") + m.text,
+              )
+              .join("\n")
+              .slice(-1800),
+          );
+        }
         if (type === "negocio.etapa_alterada")
           await applyStage(
             tx,
@@ -665,10 +728,7 @@ export async function buildApp(c: Config, store: Store) {
         next = { ...old, ...data, revision: old.revision + 1 };
       await tx.put("operation", next);
       for (const j of await tx.list("runtimeJob"))
-        if (
-          j.kind !== "record_followup" &&
-          ["pending", "running"].includes(j.state)
-        )
+        if (!isRecordJob(j.kind) && ["pending", "running"].includes(j.state))
           await tx.put("runtimeJob", {
             ...j,
             state: "cancelled",
@@ -693,6 +753,7 @@ export async function buildApp(c: Config, store: Store) {
           ...cv,
           status,
           manualState: status === "active" ? undefined : status,
+          handoffId: status === "active" ? undefined : cv.handoffId,
         });
         await cancelPending(
           tx,

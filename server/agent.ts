@@ -16,6 +16,7 @@ export type AgentInput = {
 export type AgentResult = {
   text: string | null;
   reason: string;
+  handoff?: { reason: string; summary: string };
   trace: { name: string; detail: string }[];
   simulated: boolean;
   inputTokens: number;
@@ -96,6 +97,7 @@ export async function generateAgent(
     reason = "",
     inputTokens = 0,
     outputTokens = 0;
+  let handoff: AgentResult["handoff"];
   const simulated = c.demo || request.mode === "simulation";
   const specialists = activeSpecialists(op),
     last = request.messages.at(-1)?.content.toLowerCase() ?? "";
@@ -255,6 +257,28 @@ export async function generateAgent(
           },
         ]
       : [];
+    const humanTools: OpenAI.Responses.Tool[] =
+      op.handoff?.enabled && request.kind === "reply"
+        ? [
+            {
+              type: "function",
+              name: "solicitar_humano",
+              strict: true,
+              description:
+                "Solicita atendimento humano e encerra este turno. O backend pausa novas respostas e follow-ups. Use para pergunta sem resposta aprovada, pedido de humano ou conclusão da qualificação. Não afirma transferência na Central.",
+              parameters: {
+                type: "object",
+                properties: {
+                  reason: { type: "string" },
+                  summary: { type: "string" },
+                  message: { type: "string" },
+                },
+                required: ["reason", "summary", "message"],
+                additionalProperties: false,
+              },
+            },
+          ]
+        : [];
     const schema = {
       type: "object",
       properties: {
@@ -290,8 +314,9 @@ export async function generateAgent(
           model: c.model,
           instructions: instruction,
           input,
-          tools: canConsult ? tools : [],
-          tool_choice: canConsult && tools.length ? "auto" : "none",
+          tools: [...(canConsult ? tools : []), ...humanTools],
+          tool_choice:
+            (canConsult && tools.length) || humanTools.length ? "auto" : "none",
           parallel_tool_calls: false,
           store: false,
           max_output_tokens: c.agentLimits.outputTokens,
@@ -323,6 +348,33 @@ export async function generateAgent(
           text = result.action === "send" ? result.text.trim() : null;
           reason = result.reason;
         } else text = response.output_text.trim();
+        break;
+      }
+      const humanCall = calls.find((call) => call.name === "solicitar_humano");
+      if (humanCall) {
+        if (!humanTools.length || calls.length !== 1)
+          throw new DomainError("encaminhamento_invalido", 409);
+        const args = z
+          .object({
+            reason: z.string().trim().min(1).max(500),
+            summary: z.string().trim().min(1).max(1800),
+            message: z.string().trim().min(1).max(1000),
+          })
+          .strict()
+          .parse(JSON.parse(humanCall.arguments));
+        handoff = {
+          reason: redact(args.reason, c),
+          summary: redact(args.summary, c),
+        };
+        text = args.message;
+        reason = args.reason;
+        trace.push({
+          name: "solicitar_humano",
+          detail:
+            request.environment === "lab"
+              ? "Prévia: pausaria a automação e encaminharia o contexto; nenhum atendimento alterado."
+              : "Encaminhamento humano solicitado.",
+        });
         break;
       }
       if (!canConsult)
@@ -426,6 +478,7 @@ export async function generateAgent(
   return {
     text,
     reason,
+    handoff,
     trace,
     simulated,
     inputTokens,

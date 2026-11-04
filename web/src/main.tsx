@@ -60,6 +60,7 @@ type Data = {
   messages: ConversationMessage[];
   runtimeJobs: RuntimeJob[];
   followups: FollowupExecution[];
+  handoffs?: import("../../shared/model").HumanHandoff[];
   integrations: IntegrationStatus[];
   usage: Usage[];
   audit: Audit[];
@@ -356,6 +357,9 @@ function App() {
     blocked = data.runtimeJobs.filter((j) =>
       ["blocked", "unknown"].includes(j.state),
     ),
+    waitingHuman = data.conversations.filter(
+      (c) => c.status === "paused" && c.handoffId,
+    ).length,
     active = data.conversations.filter((c) => c.status === "active").length;
   return (
     <div className="app-shell">
@@ -518,8 +522,8 @@ function App() {
                 />
                 <Stat
                   title="Precisam de atenção"
-                  value={blocked.length}
-                  detail="Bloqueios e conciliações"
+                  value={blocked.length + waitingHuman}
+                  detail="Encaminhamentos, bloqueios e conciliações"
                   icon={ShieldCheck}
                 />
               </div>
@@ -956,6 +960,128 @@ function AgentEditor({
         <>
           <section className="panel">
             <div className="form-body">
+              <label className="module-toggle">
+                <span>
+                  <b>Modo de teste restrito</b>
+                  <small>
+                    Somente os números abaixo podem receber respostas
+                    automáticas. Lista vazia bloqueia todos.
+                  </small>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label="Restringir atendimento a contatos de teste"
+                  checked={!!op.testMode?.enabled}
+                  onChange={(e) =>
+                    setOp({
+                      ...op,
+                      testMode: {
+                        enabled: e.target.checked,
+                        phones: op.testMode?.phones ?? [],
+                      },
+                    })
+                  }
+                />
+              </label>
+              <label>
+                Números de teste (DDI e DDD, separados por vírgula)
+                <input
+                  aria-label="Números de teste"
+                  value={(op.testMode?.phones ?? []).join(", ")}
+                  onChange={(e) =>
+                    setOp({
+                      ...op,
+                      testMode: {
+                        enabled: !!op.testMode?.enabled,
+                        phones: e.target.value
+                          .split(",")
+                          .map((p) => p.replace(/\D/g, ""))
+                          .filter(Boolean),
+                      },
+                    })
+                  }
+                />
+              </label>
+              {op.testMode?.enabled && (
+                <p className="muted">
+                  Teste restrito ativo: os demais contatos ficam sem resposta e
+                  sem follow-up automático.
+                </p>
+              )}
+              <label className="module-toggle">
+                <span>
+                  <b>Encaminhamento humano</b>
+                  <small>
+                    O principal pode solicitar a equipe. A automação pausa até
+                    retomada manual no Pulsoo.
+                  </small>
+                </span>
+                <input
+                  type="checkbox"
+                  aria-label="Permitir encaminhamento humano"
+                  checked={!!op.handoff?.enabled}
+                  onChange={(e) =>
+                    setOp({
+                      ...op,
+                      handoff: {
+                        enabled: e.target.checked,
+                        onImage: op.handoff?.onImage ?? false,
+                        recordNote: op.handoff?.recordNote ?? false,
+                      },
+                    })
+                  }
+                />
+              </label>
+              {op.handoff?.enabled && (
+                <>
+                  <label className="module-toggle">
+                    <span>
+                      <b>Pausar ao receber fotos</b>
+                      <small>
+                        Fotos ficam para avaliação humana; a IA não analisa
+                        imagens nem confirma segurança.
+                      </small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      aria-label="Encaminhar fotos para humano"
+                      checked={op.handoff.onImage}
+                      onChange={(e) =>
+                        setOp({
+                          ...op,
+                          handoff: {
+                            ...op.handoff!,
+                            onImage: e.target.checked,
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                  <label className="module-toggle">
+                    <span>
+                      <b>Registrar resumo na Central</b>
+                      <small>
+                        Acrescenta nota sem apagar a equipe. Exige o escopo
+                        notas:escrever. Não envia aviso para grupo.
+                      </small>
+                    </span>
+                    <input
+                      type="checkbox"
+                      aria-label="Registrar encaminhamento nas notas da Central"
+                      checked={op.handoff.recordNote}
+                      onChange={(e) =>
+                        setOp({
+                          ...op,
+                          handoff: {
+                            ...op.handoff!,
+                            recordNote: e.target.checked,
+                          },
+                        })
+                      }
+                    />
+                  </label>
+                </>
+              )}
               <label className="module-toggle">
                 <span>
                   <b>Atendimento automático</b>
@@ -1429,6 +1555,10 @@ function Conversations({
             <span className="avatar">{c.name.slice(0, 2).toUpperCase()}</span>
             <h3>{c.name}</h3>
             <Tag>{c.stage}</Tag>
+            {data.conversations.some(
+              (cv) =>
+                cv.contactId === c.id && cv.handoffId && cv.status === "paused",
+            ) && <Tag tone="amber">Aguardando humano</Tag>}
             <p>{c.notes || "Contexto ainda não registrado."}</p>
             <div>
               Abrir conversa <ArrowUpRight size={16} />
@@ -1462,6 +1592,27 @@ function Conversations({
                     {cv.deliveryUnknown ? "Entrega a conciliar" : ""}
                   </span>
                 </div>
+                {cv.handoffId &&
+                  (() => {
+                    const h = data.handoffs?.find((h) => h.id === cv.handoffId);
+                    return (
+                      <div className="panel form-body">
+                        <h3>Aguardando atendimento humano</h3>
+                        <p>{h?.reason}</p>
+                        <p style={{ whiteSpace: "pre-wrap" }}>{h?.summary}</p>
+                        <small>
+                          {h?.noteState === "done"
+                            ? "Resumo registrado na Central."
+                            : h?.noteState === "blocked"
+                              ? "Nota não confirmada na Central; verifique a chave e o escopo notas:escrever."
+                              : h?.noteState === "pending"
+                                ? "Registro da nota pendente."
+                                : "Encaminhamento registrado neste painel."}{" "}
+                          A automação permanece pausada.
+                        </small>
+                      </div>
+                    );
+                  })()}
                 <div className="conversation-history">
                   {data.messages
                     .filter((m) => m.conversationId === cv.id)
@@ -2128,12 +2279,10 @@ function Resources({
                 api("/proposals", {
                   contactId: f.get("contactId"),
                   templateId: f.get("templateId"),
-                  items: f
-                    .getAll("products")
-                    .map((id) => ({
-                      productId: id,
-                      quantity: Number(f.get("qty:" + id) || 1),
-                    })),
+                  items: f.getAll("products").map((id) => ({
+                    productId: id,
+                    quantity: Number(f.get("qty:" + id) || 1),
+                  })),
                 }),
               ).then((ok) => {
                 if (ok) setCreate(false);

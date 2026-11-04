@@ -49,3 +49,9 @@ Nenhum código Fazer AI incorporado. A implementação e os contratos são próp
 - Verificações: TypeScript e build aprovados; 52 testes, 51 aprovados, um teste condicional de PostgreSQL descartável ignorado. npm audit --omit=dev: nenhuma vulnerabilidade conhecida na consulta desta data.
 - Atendimento automático e módulos comerciais continuam desligados. Próximo passo depende do roteiro aprovado da operação e isolamento do contato de homologação. Voz, transcrição, notas externas e ferramentas Google/agendas continuam nos limites descritos no README.
 - A implantação foi validada na VPS; backup/restauração e atendimento real com pausa humana, follow-up e tarefa concluída ainda precisam de homologação específica.
+
+## Qualificação e encaminhamento — 04/11/2026
+
+Implementados modo de teste por telefone, revalidação antes de gerar/enviar, solicitação humana pelo principal, pausa durável ao receber fotos e nota com resumo na Central por job independente. O roteiro da operação e o número autorizado foram preparados somente em arquivo privado ignorado pelo Git; o PDF do cliente não foi incorporado ao repositório público. Fotos ficam para o humano, sem chamada de visão. Transferência remota de responsável e aviso para grupo não fazem parte desse recurso.
+
+Nesta revisão, Pulsoo e Coolify apresentaram timeout simultâneo antes de qualquer novo deploy. Acesso à VPS e configuração de produção dependem da retomada da conexão; não confundir a prévia local com uma implantação concluída.

@@ -124,6 +124,7 @@ export type EntityMap = {
   message: ConversationMessage;
   runtimeJob: RuntimeJob;
   followup: FollowupExecution;
+  handoff: HumanHandoff;
   product: Product;
   template: ProposalTemplate;
   contact: Contact;
@@ -155,6 +156,8 @@ export type ModuleKey = "catalog" | "proposals" | "calendar";
 export type Operation = Base & {
   revision: number;
   agentEnabled: boolean;
+  testMode?: { enabled: boolean; phones: string[] };
+  handoff?: { enabled: boolean; onImage: boolean; recordNote: boolean };
   modules: Record<ModuleKey, boolean>;
   specialists: {
     id: "qualification" | "knowledge" | "catalog" | "calendar" | "proposals";
@@ -184,6 +187,7 @@ export type Conversation = Base & {
   followupStep: number;
   deliveryUnknown?: boolean;
   manualState?: "paused" | "closed";
+  handoffId?: string;
 };
 export type ConversationMessage = Base & {
   conversationId: string;
@@ -195,7 +199,7 @@ export type ConversationMessage = Base & {
   simulated?: boolean;
 };
 export type RuntimeJob = Base & {
-  kind: "reply" | "followup" | "record_followup";
+  kind: "reply" | "followup" | "record_followup" | "record_handoff";
   conversationId: string;
   contactId: string;
   state:
@@ -226,5 +230,15 @@ export type FollowupExecution = Base & {
   taskState: "pending" | "done" | "blocked" | "simulated";
   taskId?: string;
   simulated: boolean;
+  lastError?: string;
+};
+
+export type HumanHandoff = Base & {
+  conversationId: string;
+  contactId: string;
+  reason: string;
+  summary: string;
+  noteState: "pending" | "done" | "blocked" | "not_requested";
+  centralNoteId?: string;
   lastError?: string;
 };

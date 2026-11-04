@@ -5,6 +5,21 @@ import { base, DomainError } from "./domain.js";
 export const operationSchema = z
   .object({
     agentEnabled: z.boolean(),
+    testMode: z
+      .object({
+        enabled: z.boolean(),
+        phones: z.array(z.string().regex(/^\d{10,15}$/)).max(10),
+      })
+      .strict()
+      .optional(),
+    handoff: z
+      .object({
+        enabled: z.boolean(),
+        onImage: z.boolean(),
+        recordNote: z.boolean(),
+      })
+      .strict()
+      .optional(),
     modules: z
       .object({
         catalog: z.boolean(),
@@ -157,4 +172,20 @@ export function specialistAvailable(
     (!module || o.modules[module]) &&
     o.specialists.some((s) => s.id === id && s.enabled)
   );
+}
+
+export function normalizePhone(value: string) {
+  const digits = value.replace(/\D/g, "");
+  return digits.length === 10 || digits.length === 11 ? "55" + digits : digits;
+}
+export function testContactAllowed(
+  op: Operation,
+  contact: { phone: string } | undefined,
+) {
+  if (!op.testMode?.enabled) return true;
+  const phone = normalizePhone(contact?.phone ?? "");
+  return !!phone && op.testMode.phones.some((p) => normalizePhone(p) === phone);
+}
+export function isRecordJob(kind: string) {
+  return kind === "record_followup" || kind === "record_handoff";
 }
