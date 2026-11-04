@@ -58,6 +58,7 @@ A extensão atual da Central usa Evolution. Não assumir suporte da Cloud API ap
 ## Coolify
 Usar Application a partir do repositório Git, estratégia Docker Compose e arquivo compose.coolify.yaml, base na raiz do Pulsoo. Fonte: https://github.com/nathanquiem/pulsoo. Escolher um commit validado para cada implantação.
 O Compose contém app + PostgreSQL exclusivo, volume persistente e inicialização do papel pulsoo_app. Não reutilizar banco da Central ou de outro cliente.
+Ativar Preserve repository during deployment no recurso para manter infra/initdb disponível ao PostgreSQL.
 Serviço público: app, porta interna 3081. Configurar domínio pulsoo.sua-empresa.example, HTTPS. Se o painel usa o campo URL combinado, informar https://pulsoo.sua-empresa.example:3081. O visitante acessa a URL normal sem :3081. DNS deve apontar para a VPS correta.
 Sem portas de banco publicadas. O proxy do Coolify roteia até app; não adicionar ports 3081:3081 neste Compose.
 
