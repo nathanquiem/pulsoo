@@ -20,6 +20,38 @@ export const operationSchema = z
       })
       .strict()
       .optional(),
+    workflow: z
+      .object({
+        enabled: z.boolean(),
+        fields: z
+          .array(
+            z
+              .object({
+                key: z.string().regex(/^[a-z][a-z0-9_]{0,39}$/),
+                label: z.string().min(1).max(80),
+                question: z.string().min(1).max(400),
+                required: z.boolean(),
+              })
+              .strict(),
+          )
+          .max(12),
+        stageOnStart: z.string().max(100),
+        stageOnHandoff: z.string().max(100),
+        responsibleId: z.string().max(100),
+        farewell: z.string().min(1).max(800),
+        nextStep: z.string().max(300),
+        photoPolicy: z.enum(["immediate", "collect"]),
+        requirePhoto: z.boolean(),
+        notification: z
+          .object({
+            kind: z.enum(["none", "contact", "conversation", "group"]),
+            targetId: z.string().max(200),
+            numberId: z.string().max(100),
+          })
+          .strict(),
+      })
+      .strict()
+      .optional(),
     modules: z
       .object({
         catalog: z.boolean(),
@@ -70,6 +102,15 @@ export const operationSchema = z
   })
   .strict()
   .superRefine((o, ctx) => {
+    if (
+      o.workflow &&
+      new Set(o.workflow.fields.map((f) => f.key)).size !==
+        o.workflow.fields.length
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Campos de qualificação duplicados.",
+      });
     if (o.modules.proposals && !o.modules.catalog)
       ctx.addIssue({ code: "custom", message: "Propostas exigem catálogo." });
     if (
@@ -180,12 +221,34 @@ export function normalizePhone(value: string) {
 }
 export function testContactAllowed(
   op: Operation,
-  contact: { phone: string } | undefined,
+  contact: { phone: string; id?: string; conversationId?: string } | undefined,
 ) {
+  const destination = op.workflow?.notification;
+  if (
+    destination?.targetId &&
+    ((destination.kind === "contact" && contact?.id === destination.targetId) ||
+      (destination.kind === "conversation" &&
+        contact?.conversationId === destination.targetId))
+  )
+    return false;
   if (!op.testMode?.enabled) return true;
   const phone = normalizePhone(contact?.phone ?? "");
   return !!phone && op.testMode.phones.some((p) => normalizePhone(p) === phone);
 }
+export function photoHandoff(op: Operation) {
+  return (
+    !!op.handoff?.enabled &&
+    (op.workflow?.enabled
+      ? op.workflow.photoPolicy === "immediate"
+      : !!op.handoff?.onImage)
+  );
+}
 export function isRecordJob(kind: string) {
-  return kind === "record_followup" || kind === "record_handoff";
+  return [
+    "record_followup",
+    "record_handoff",
+    "record_stage",
+    "notify_human",
+    "record_transfer",
+  ].includes(kind);
 }

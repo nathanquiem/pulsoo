@@ -57,6 +57,7 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
       companyId: env.CENTRAL_EMPRESA_ID ?? "",
       key: env.CENTRAL_API_KEY ?? "",
       webhookSecret: env.CENTRAL_WEBHOOK_SECRET ?? "",
+      ...(env.CENTRAL_ATENDIMENTO_V1 === "true" ? { extendedApi: true } : {}),
     },
     openaiKey: env.OPENAI_API_KEY ?? "",
     model: env.OPENAI_MODEL ?? "",

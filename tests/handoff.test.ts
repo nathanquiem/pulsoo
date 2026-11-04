@@ -106,6 +106,25 @@ const result: AgentResult = {
     summary: "Lead quer saber se a estrutura permite instalar.",
   },
 };
+
+async function acknowledgePhoto(f: Awaited<ReturnType<typeof fixture>>) {
+  await processRuntime(
+    f.store,
+    { ...f.config, demo: false },
+    {
+      now: () => new Date(Date.now() + 6000),
+      generate: async () => result,
+      sender: {
+        sendText: async () => ({
+          mensagem: { id: randomUUID(), status: "enviada" },
+        }),
+        recordCompletedFollowup: async () => {
+          throw Error("não esperado");
+        },
+      },
+    },
+  );
+}
 test("teste restrito não agenda outros contatos e lista vazia bloqueia todos", async (t) => {
   const f = await fixture();
   t.after(() => f.app.close());
@@ -137,6 +156,7 @@ test("foto pausa para humano, cancela fila e não reinicia após novas mensagens
     (await f.inbound("imagem", undefined, "", eventId)).statusCode,
     202,
   );
+  await acknowledgePhoto(f);
   await f.inbound("texto", undefined, "As medidas são aproximadas");
   await f.store.transaction((tx) =>
     syncConversationGate(tx, f.contactId, true, false),
@@ -260,6 +280,7 @@ test("nota de encaminhamento tem repetição independente sem reativar atendimen
   const f = await fixture();
   t.after(() => f.app.close());
   await f.inbound("imagem", undefined, "");
+  await acknowledgePhoto(f);
   let attempts = 0;
   const ids: string[] = [];
   let clock = Date.now() + 6000;
@@ -452,5 +473,32 @@ test("restrição alterada durante geração impede confirmação e encaminhamen
   assert.equal(
     (await f.store.transaction((tx) => tx.list("handoff"))).length,
     0,
+  );
+});
+
+test("webhook de foto usa a fila, registra a foto e envia despedida antes de parar", async (t) => {
+  const f = await fixture();
+  t.after(() => f.app.close());
+  await f.inbound("imagem", undefined, "");
+  assert.equal(
+    (await f.store.transaction((tx) => tx.list("handoff"))).length,
+    0,
+  );
+  const cv = await f.store.transaction((tx) =>
+    tx.get("conversation", f.conversationId),
+  );
+  assert.equal(cv?.photoCount, 1);
+  assert.equal(cv?.status, "active");
+  await acknowledgePhoto(f);
+  const h = (await f.store.transaction((tx) => tx.list("handoff")))[0];
+  assert.equal(h.farewellState, "done");
+  assert.ok(h.summary.includes("WhatsApp:"));
+  assert.equal(
+    (
+      await f.store.transaction((tx) =>
+        tx.get("conversation", f.conversationId),
+      )
+    )?.status,
+    "paused",
   );
 });

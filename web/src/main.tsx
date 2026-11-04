@@ -48,6 +48,7 @@ import type {
 } from "../../shared/model";
 import { money } from "../../shared/model";
 import "./style.css";
+import { RhythmEditor, WorkflowEditor } from "./WorkflowEditor";
 type Data = {
   demo: boolean;
   contacts: Contact[];
@@ -64,6 +65,14 @@ type Data = {
   integrations: IntegrationStatus[];
   usage: Usage[];
   audit: Audit[];
+  centralExtensions?: boolean;
+  tools?: { id: string; name: string; trigger: string }[];
+  archives?: {
+    id: string;
+    createdAt: string;
+    count: number;
+    restoredAt?: string;
+  }[];
 };
 type Tab =
   "overview" | "contacts" | "agents" | "lab" | "settings" | "resources";
@@ -686,6 +695,7 @@ function App() {
           {tab === "settings" && (
             <>
               <Modules data={data} act={act} busy={busy} />
+              <TestHistory data={data} act={act} busy={busy} />
               <section className="panel disclosure">
                 <details>
                   <summary>Aparência</summary>
@@ -775,7 +785,7 @@ function App() {
           )}
           <footer className="footer">
             <span>Pulsoo / sua operação, em movimento.</span>
-            <span>Base em evolução · v0.2</span>
+            <span>Base em evolução · v0.3</span>
           </footer>
         </div>
       </main>
@@ -950,6 +960,12 @@ function AgentEditor({
           Especialistas
         </button>
         <button
+          className={section === "workflow" ? "selected" : ""}
+          onClick={() => setSection("workflow")}
+        >
+          Fluxo e ferramentas
+        </button>
+        <button
           className={section === "followup" ? "selected" : ""}
           onClick={() => setSection("followup")}
         >
@@ -1034,29 +1050,31 @@ function AgentEditor({
               </label>
               {op.handoff?.enabled && (
                 <>
-                  <label className="module-toggle">
-                    <span>
-                      <b>Pausar ao receber fotos</b>
-                      <small>
-                        Fotos ficam para avaliação humana; a IA não analisa
-                        imagens nem confirma segurança.
-                      </small>
-                    </span>
-                    <input
-                      type="checkbox"
-                      aria-label="Encaminhar fotos para humano"
-                      checked={op.handoff.onImage}
-                      onChange={(e) =>
-                        setOp({
-                          ...op,
-                          handoff: {
-                            ...op.handoff!,
-                            onImage: e.target.checked,
-                          },
-                        })
-                      }
-                    />
-                  </label>
+                  {!op.workflow?.enabled && (
+                    <label className="module-toggle">
+                      <span>
+                        <b>Pausar ao receber fotos</b>
+                        <small>
+                          Fotos ficam para avaliação humana; a IA não analisa
+                          imagens nem confirma segurança.
+                        </small>
+                      </span>
+                      <input
+                        type="checkbox"
+                        aria-label="Encaminhar fotos para humano"
+                        checked={op.handoff.onImage}
+                        onChange={(e) =>
+                          setOp({
+                            ...op,
+                            handoff: {
+                              ...op.handoff!,
+                              onImage: e.target.checked,
+                            },
+                          })
+                        }
+                      />
+                    </label>
+                  )}
                   <label className="module-toggle">
                     <span>
                       <b>Registrar resumo na Central</b>
@@ -1160,39 +1178,25 @@ function AgentEditor({
               </button>
             </div>
           </form>
-          <details className="panel disclosure">
-            <summary>Voz e apresentação das respostas</summary>
-            <div className="form-body">
-              <p className="muted">
-                As quebras por parágrafo são usadas no laboratório. O motor
-                inicial envia um texto por turno, preservando as quebras de
-                linha.
-              </p>
-              <label>
-                Divisão no laboratório
-                <select
-                  value={data.settings.splitMode}
-                  onChange={(e) =>
-                    void act(() => {
-                      const { id, createdAt, ...s } = data.settings;
-                      return api(
-                        "/settings",
-                        { ...s, splitMode: e.target.value },
-                        "PUT",
-                      );
-                    })
-                  }
-                >
-                  <option value="paragraphs">Por parágrafos</option>
-                  <option value="single">Mensagem única</option>
-                </select>
-              </label>
-              <p className="muted">
-                Voz ao lead continua dependente da API de mídia da Central.
-              </p>
-            </div>
-          </details>
+          <RhythmEditor
+            settings={data.settings}
+            typingSupported={!!data.centralExtensions}
+            save={(value) => {
+              const { id, createdAt, ...body } = value;
+              return act(() => api("/settings", body, "PUT"));
+            }}
+          />
         </>
+      )}
+      {section === "workflow" && (
+        <WorkflowEditor
+          operation={data.operation}
+          tools={data.tools ?? []}
+          centralExtensions={!!data.centralExtensions}
+          save={(value) =>
+            act(() => api("/operation", operationBody(value), "PUT"))
+          }
+        />
       )}
       {section === "specialists" && (
         <>
@@ -1632,6 +1636,57 @@ function Conversations({
                       </div>
                     ))}
                 </div>
+                {data.runtimeJobs.some(
+                  (j) =>
+                    j.conversationId === cv.id &&
+                    [
+                      "record_stage",
+                      "record_handoff",
+                      "notify_human",
+                      "record_transfer",
+                      "record_transfer",
+                    ].includes(j.kind),
+                ) && (
+                  <section className="panel form-body">
+                    <h3>Ferramentas e ações</h3>
+                    {data.runtimeJobs
+                      .filter(
+                        (j) =>
+                          j.conversationId === cv.id &&
+                          [
+                            "record_stage",
+                            "record_handoff",
+                            "notify_human",
+                            "record_transfer",
+                          ].includes(j.kind),
+                      )
+                      .slice(-8)
+                      .map((j) => (
+                        <p key={j.id}>
+                          <b>
+                            {j.kind === "record_stage"
+                              ? "Mover etapa"
+                              : j.kind === "record_handoff"
+                                ? "Registrar resumo"
+                                : j.kind === "record_transfer"
+                                  ? "Transferir conversa"
+                                  : "Avisar equipe"}
+                          </b>{" "}
+                          ·{" "}
+                          {j.state === "done"
+                            ? "Confirmada"
+                            : j.state === "pending" || j.state === "running"
+                              ? "Pendente"
+                              : j.state === "unknown"
+                                ? "Resultado incerto; conferir antes de repetir"
+                                : "Bloqueada"}
+                          {j.lastError
+                            ? " · " + j.lastError.replaceAll("_", " ")
+                            : ""}
+                        </p>
+                      ))}
+                  </section>
+                )}
                 <div className="conversation-controls">
                   <button
                     disabled={busy}
@@ -1681,12 +1736,22 @@ function Conversations({
                         phone: selected.phone,
                         stage: selected.stage,
                         notes: new FormData(e.currentTarget).get("notes"),
+                        opportunityId: new FormData(e.currentTarget).get(
+                          "opportunityId",
+                        ),
                       },
                       "PUT",
                     ),
                   );
                 }}
               >
+                <label>
+                  ID da oportunidade na Central (opcional)
+                  <input
+                    name="opportunityId"
+                    defaultValue={selected.opportunityId ?? ""}
+                  />
+                </label>
                 <label>
                   Notas internas
                   <textarea
@@ -1742,6 +1807,8 @@ function Lab({
     [text, setText] = React.useState(""),
     [mode, setMode] = React.useState("simulation"),
     [kind, setKind] = React.useState("reply"),
+    [photo, setPhoto] = React.useState(false),
+    [summaryPreview, setSummaryPreview] = React.useState(""),
     [waiting, setWaiting] = React.useState(false),
     [trace, setTrace] = React.useState<{ name: string; detail: string }[]>([]),
     [error, setError] = React.useState("");
@@ -1761,12 +1828,15 @@ function Lab({
         reason: string;
         parts: string[];
         trace: typeof trace;
+        summaryPreview?: string;
       }>("/lab/chat", {
         messages: next.map(({ role, content }) => ({ role, content })),
         mode,
         kind,
+        photoCount: photo ? 1 : 0,
       });
       setTrace(r.trace);
+      setSummaryPreview(r.summaryPreview ?? "");
       if (r.text)
         setMessages([
           ...next,
@@ -1799,6 +1869,8 @@ function Lab({
             onClick={() => {
               setMessages([]);
               setTrace([]);
+              setSummaryPreview("");
+              setPhoto(false);
             }}
           >
             Nova sessão
@@ -1867,6 +1939,20 @@ function Lab({
                 </option>
               </select>
             </label>
+            <label className="check-label">
+              <input
+                type="checkbox"
+                checked={photo}
+                onChange={(e) => setPhoto(e.target.checked)}
+              />
+              Simular foto recebida (sem analisar imagem)
+            </label>
+            {mode === "simulation" && (
+              <p className="muted">
+                Simulação técnica da entrega. Para avaliar o roteiro e a escolha
+                de ferramentas, use IA real.
+              </p>
+            )}
             {demo && (
               <>
                 <button
@@ -1897,7 +1983,7 @@ function Lab({
         </section>
         <section className="panel">
           <div className="panel-header">
-            <h2>Consultas do agente</h2>
+            <h2>Ferramentas e decisões</h2>
             <Bot size={18} />
           </div>
           <div className="form-body">
@@ -1909,12 +1995,21 @@ function Lab({
                 </div>
               ))
             ) : (
-              <p className="muted">
-                As consultas aos especialistas aparecem aqui.
-              </p>
+              <p className="muted">As ferramentas e consultas aparecem aqui.</p>
             )}
           </div>
         </section>
+        {summaryPreview && (
+          <section className="panel">
+            <div className="panel-header">
+              <h2>Prévia do resumo</h2>
+            </div>
+            <div className="form-body">
+              <p style={{ whiteSpace: "pre-wrap" }}>{summaryPreview}</p>
+              <small>Nenhuma nota ou aviso externo foi criado.</small>
+            </div>
+          </section>
+        )}
       </aside>
     </div>
   );
@@ -2441,3 +2536,62 @@ createRoot(document.getElementById("root")!).render(
     <App />
   </React.StrictMode>,
 );
+
+function TestHistory({
+  data,
+  act,
+  busy,
+}: {
+  data: Data;
+  act: Act;
+  busy: boolean;
+}) {
+  return (
+    <section className="panel disclosure">
+      <details>
+        <summary>Histórico dos testes</summary>
+        <div className="form-body">
+          <p>
+            Limpa somente a memória dos contatos autorizados no modo de teste.
+            Configurações, consumo e histórico da Central são preservados. Uma
+            cópia restaurável é criada antes da limpeza.
+          </p>
+          <button
+            disabled={
+              busy ||
+              data.operation.agentEnabled ||
+              !data.operation.testMode?.enabled
+            }
+            onClick={() =>
+              void act(
+                () => api("/test-history/reset"),
+                "Memória do teste limpa; cópia disponível abaixo.",
+              )
+            }
+          >
+            Limpar memória do teste com cópia
+          </button>
+          {data.archives?.map((a) => (
+            <div className="connection-row" key={a.id}>
+              <span>
+                {fmt(a.createdAt)} · {a.count} registros{" "}
+                {a.restoredAt ? "· Restaurada" : ""}
+              </span>
+              <a className="button" href={"/api/test-history/" + a.id}>
+                Baixar cópia
+              </a>
+              <button
+                disabled={busy || data.operation.agentEnabled || !!a.restoredAt}
+                onClick={() =>
+                  void act(() => api("/test-history/" + a.id + "/restore"))
+                }
+              >
+                Restaurar
+              </button>
+            </div>
+          ))}
+        </div>
+      </details>
+    </section>
+  );
+}

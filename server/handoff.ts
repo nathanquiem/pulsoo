@@ -3,20 +3,41 @@ import type { Tx } from "./store.js";
 import { base } from "./domain.js";
 import { cancelPending } from "./followup.js";
 import { operation } from "./operation.js";
+import {
+  workflowSummary,
+  queueHumanNotification,
+  queueStage,
+} from "./workflow.js";
 export async function requestHuman(
   tx: Tx,
   cv: Conversation,
   reason: string,
   summary: string,
 ) {
-  if (cv.handoffId) return;
+  if (cv.handoffId) return tx.get("handoff", cv.handoffId);
   const op = await operation(tx);
-  const handoff = {
+  const contact = await tx.get("contact", cv.contactId);
+  const handoff: import("../shared/model.js").HumanHandoff = {
     ...base(),
     conversationId: cv.id,
     contactId: cv.contactId,
     reason: reason.slice(0, 500),
-    summary: summary.slice(0, 1800),
+    summary: contact
+      ? workflowSummary(contact, cv, op, reason, summary)
+      : summary.slice(0, 1800),
+    farewellState: "pending",
+    notification: op.workflow?.notification
+      ? {
+          ...op.workflow.notification,
+          numberId:
+            op.workflow.notification.numberId || contact?.numberId || "",
+        }
+      : undefined,
+    responsibleId: op.workflow?.responsibleId || undefined,
+    notificationState:
+      op.workflow?.notification.kind && op.workflow.notification.kind !== "none"
+        ? "pending"
+        : "not_requested",
     noteState: op.handoff?.recordNote
       ? ("pending" as const)
       : ("not_requested" as const),
@@ -43,6 +64,9 @@ export async function requestHuman(
       policyRevision: op.revision,
       executionId: handoff.id,
     });
+  await queueHumanNotification(tx, handoff, op);
+  if (contact && op.workflow?.stageOnHandoff)
+    await queueStage(tx, cv, contact, op.workflow.stageOnHandoff, op);
   await tx.put("audit", {
     ...base(),
     action: "atendimento_humano_solicitado",
@@ -50,4 +74,5 @@ export async function requestHuman(
     actor: "agente",
     detail: handoff.reason,
   });
+  return handoff;
 }

@@ -1,6 +1,6 @@
 # Pulsoo
 
-Aplicativo independente por cliente (0.2), com primeira instalação na VPS em homologação. Memória e fila no PostgreSQL da própria VPS; uma instalação e uma réplica por cliente. Implantação e integrações reais ainda em homologação.
+Aplicativo independente por cliente (0.3), com primeira instalação na VPS em homologação. Memória e fila no PostgreSQL da própria VPS; uma instalação e uma réplica por cliente. Implantação e integrações reais ainda em homologação.
 
 ## Operação enxuta
 
@@ -69,12 +69,12 @@ Cada chamada registra uso imediatamente, mesmo se uma etapa posterior falhar. Fa
 
 - A primeira instalação está publicada com PostgreSQL e HTTPS. O webhook foi ativado na Central; atendimento real de ponta a ponta e integrações ainda precisam de homologação. “Credencial configurada” não equivale a conexão testada.
 - O motor reativo e a fila de follow-up estão implementados, com testes de contratos simulados; falta homologação real de ponta a ponta.
-- Mensagem operacional é enviada inteira (até 4.000 caracteres), preservando parágrafos. Vários balões/atrasos são prévia do laboratório; entrega parcial precisa de conciliação própria.
+- A entrega real pode dividir respostas em balões, com espera de agrupamento, atraso inicial, intervalo, limite de caracteres e máximo de balões. Cada parte tem confirmação persistida; partes confirmadas não são reenviadas e entrega incerta exige conciliação.
 - Voz: cliente ElevenLabs e prévia real no laboratório. A Central já tem contrato de mídia; síntese e envio automático ainda precisam ser ligados ao motor do Pulsoo.
 - Áudio recebido pausa a geração até conteúdo disponível; AssemblyAI possui cliente, mas transcrição durável ainda não está ligada ao motor.
 - Docs/Drive/Sheets/Calendar/Cal.com têm clientes HTTP testados com mocks; OAuth de recursos, ferramentas de escrita, reserva e sincronização ainda não foram liberados ao agente.
 - Propostas geram PDF local; anexos, importação e emissão completa com Google Docs ainda faltam.
-- Encaminhamento humano pausa a IA e a cadência no Pulsoo. Fotos podem dispará-lo sem análise automática de imagem. Um job opcional acrescenta resumo nas notas da Central (notas:escrever), sem substituir a equipe. Não transfere responsável nem envia aviso para grupo. Leitura confiável de notas/histórico ainda exige contrato adicional.
+- Encaminhamento humano inclui despedida, pausa local e resumo por campos. Etapas e aviso para equipe são configuráveis. Contexto, grupos, digitando e transferência da conversa dependem do contrato complementar da Central, desligado por padrão. A escrita de notas já usa a API atual; cada instalação exige homologação dos seus recursos.
 - Consumo OpenAI por chamada/modelo é registrado. Tarifas, fatura e custos de chamadas que terminam sem usage ainda precisam de conciliação; valores desconhecidos não são inventados.
 - Outros provedores de IA, busca documental e base vetorial continuam no planejamento.
 

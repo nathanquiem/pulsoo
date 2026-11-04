@@ -114,6 +114,7 @@ export async function observeInbound(
     channel: Conversation["channel"];
     allow: boolean;
     stage: string;
+    messageType?: string;
   },
 ) {
   const previous = await tx.get("conversation", input.conversationId);
@@ -129,6 +130,7 @@ export async function observeInbound(
     text: input.text,
     occurredAt: input.occurredAt,
     source: "central",
+    messageType: input.messageType ?? "texto",
   });
   if (stale) return;
   await cancelPending(tx, input.conversationId, "lead_respondeu");
@@ -151,12 +153,15 @@ export async function observeInbound(
     lastOutboundAt: previous?.lastOutboundAt,
     followupStep: 0,
     handoffId: previous?.handoffId,
+    photoCount:
+      (previous?.photoCount ?? 0) + (input.messageType === "imagem" ? 1 : 0),
     manualState: previous?.manualState,
     deliveryUnknown: previous?.deliveryUnknown,
   };
   await tx.put("conversation", c);
   const op = await operation(tx);
   const contact = await tx.get("contact", input.contactId);
+  const settings = await tx.get("settings", "agent");
   if (
     op.agentEnabled &&
     input.allow &&
@@ -171,7 +176,7 @@ export async function observeInbound(
       state: "pending",
       attempts: 0,
       dueAt: new Date(
-        new Date(input.receivedAt).getTime() + 2000,
+        new Date(input.receivedAt).getTime() + (settings?.groupingMs ?? 2000),
       ).toISOString(),
       cycle: c.cycle,
       step: 0,

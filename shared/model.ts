@@ -23,6 +23,9 @@ export type Contact = Base & {
   notes: string;
   conversationId?: string;
   automationAllowed: boolean;
+  opportunityId?: string;
+  numberId?: string;
+  qualification?: Record<string, string>;
   demo?: boolean;
 };
 export type ProposalLine = {
@@ -117,6 +120,11 @@ export type AgentSettings = Base & {
   maxChunks: number;
   delayMs: number;
   voiceMode: "text" | "audio" | "adaptive";
+  groupingMs?: number;
+  replyDelayMs?: number;
+  maxCharsPerMessage?: number;
+  naturalParagraphs?: boolean;
+  typing?: boolean;
 };
 export type EntityMap = {
   operation: Operation;
@@ -125,6 +133,13 @@ export type EntityMap = {
   runtimeJob: RuntimeJob;
   followup: FollowupExecution;
   handoff: HumanHandoff;
+  testArchive: {
+    id: string;
+    createdAt: string;
+    contactIds: string[];
+    records: { kind: string; id: string; data: unknown }[];
+    restoredAt?: string;
+  };
   product: Product;
   template: ProposalTemplate;
   contact: Contact;
@@ -157,6 +172,27 @@ export type Operation = Base & {
   revision: number;
   agentEnabled: boolean;
   testMode?: { enabled: boolean; phones: string[] };
+  workflow?: {
+    enabled: boolean;
+    fields: {
+      key: string;
+      label: string;
+      question: string;
+      required: boolean;
+    }[];
+    stageOnStart: string;
+    stageOnHandoff: string;
+    responsibleId: string;
+    farewell: string;
+    nextStep: string;
+    photoPolicy: "immediate" | "collect";
+    requirePhoto: boolean;
+    notification: {
+      kind: "none" | "contact" | "conversation" | "group";
+      targetId: string;
+      numberId: string;
+    };
+  };
   handoff?: { enabled: boolean; onImage: boolean; recordNote: boolean };
   modules: Record<ModuleKey, boolean>;
   specialists: {
@@ -188,6 +224,8 @@ export type Conversation = Base & {
   deliveryUnknown?: boolean;
   manualState?: "paused" | "closed";
   handoffId?: string;
+  photoCount?: number;
+  typingSupported?: boolean;
 };
 export type ConversationMessage = Base & {
   conversationId: string;
@@ -197,9 +235,17 @@ export type ConversationMessage = Base & {
   source: "central" | "reply" | "followup";
   centralMessageId?: string;
   simulated?: boolean;
+  messageType?: string;
 };
 export type RuntimeJob = Base & {
-  kind: "reply" | "followup" | "record_followup" | "record_handoff";
+  kind:
+    | "reply"
+    | "followup"
+    | "record_followup"
+    | "record_handoff"
+    | "record_stage"
+    | "notify_human"
+    | "record_transfer";
   conversationId: string;
   contactId: string;
   state:
@@ -219,6 +265,19 @@ export type RuntimeJob = Base & {
   lastError?: string;
   resultText?: string;
   demoOnly?: boolean;
+  stageTarget?: string;
+  expectedStage?: string;
+  opportunityId?: string;
+  responsibleId?: string;
+  handoffAckId?: string;
+  deliveryParts?: {
+    text: string;
+    state: "pending" | "sending" | "sent";
+    messageId?: string;
+    sentAt?: string;
+  }[];
+  savedHandoff?: { reason: string; summary: string };
+  savedQualification?: Record<string, string>;
 };
 export type FollowupExecution = Base & {
   conversationId: string;
@@ -239,6 +298,11 @@ export type HumanHandoff = Base & {
   reason: string;
   summary: string;
   noteState: "pending" | "done" | "blocked" | "not_requested";
+  notificationState?: "pending" | "done" | "blocked" | "not_requested";
+  notification?: NonNullable<Operation["workflow"]>["notification"];
+  farewellState?: "pending" | "done" | "blocked";
+  transferState?: "pending" | "done" | "blocked";
+  responsibleId?: string;
   centralNoteId?: string;
   lastError?: string;
 };

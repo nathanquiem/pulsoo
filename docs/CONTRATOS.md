@@ -143,3 +143,17 @@ Com “Pausar ao receber fotos”, uma imagem recebida encerra a qualificação 
 Opcionalmente, um job registra o resumo em POST /api/v1/contatos/{id}/notas (notas:escrever). Usa UUID permanente no corpo e repetição independente, conforme o contrato da Central, sem substituir o texto humano. Falha da nota não retoma a IA nem repete a confirmação ao lead. O painel mostra o motivo/resumo e o estado da nota. Não existe transferência de responsável, pausa remota da Central ou aviso para grupo por esse recurso.
 
 Para retomar a IA, usar Retomar na conversa do Pulsoo e conferir a permissão na Central. Isso permite somente novas mensagens, sem disparar histórico.
+
+## Revisão 0.3 — operação genérica e entrega real
+
+Fluxo e ferramentas permite cadastrar campos/perguntas por instalação, mapear etapas de início e passagem humana, configurar despedida, próximo passo e destino de aviso. O principal usa responder_atendimento/solicitar_humano para devolver fatos estruturados; o backend executa somente as ações configuradas e registra confirmação ou bloqueio. Nenhum nome, campo ou regra da Nobre foi incorporado ao motor.
+
+Agrupamento, espera inicial, intervalo entre balões, parágrafos e limite de caracteres saíram da prévia e foram ligados à entrega real. O plano de partes é persistido; uma nova mensagem ou pausa interrompe o restante, sem apagar partes já enviadas. Reinício sem envio incerto retoma o plano; parte em andamento sem confirmação não é repetida. Fotos entram na mesma fila e podem concluir o atendimento com despedida ou continuar a coleta configurada.
+
+O resumo tem nome, telefone, campos informados/não informados, fotos, motivo, síntese e próximo passo. Mover etapa usa PATCH de oportunidade já existente. Sem ID de oportunidade/vínculo seguro, a ação fica bloqueada. Aviso a contato/conversa é configurado por ID da Central; o destino humano é excluído da qualificação para evitar retorno ao bot. Notas seguem UUID estável e preservam texto da equipe.
+
+A API complementar está descrita em docs/PROMPT-CENTRAL-ATENDIMENTO.md. CENTRAL_ATENDIMENTO_V1=false é o padrão: contexto, presença, grupo e transferência remota não são anunciados como disponíveis. Os adaptadores estão preparados e testados com mocks; só habilitar após publicação/homologação dos endpoints e escopos. Canal sem presença retorna aplicado=false e o texto continua. Grupo sem contrato não pode ser ativado. Transferência remota é enfileirada depois da despedida confirmada.
+
+POST /api/test-history/reset arquiva apenas a memória dos contatos autorizados, com agente pausado e modo restrito. Consumo, eventos deduplicados e histórico da Central são preservados. GET /api/test-history/{id} baixa a cópia. POST /api/test-history/{id}/restore restaura pausado, sem repetir jobs; recusa sobrepor uma conversa nova. Tudo exige a sessão autenticada da instalação.
+
+O laboratório permite simular recebimento de foto e mostra a prévia do resumo, sem criar notas/avisos reais. Simulação é técnica; avaliação do roteiro exige IA real. Rascunhos do editor de fluxo/ritmo são preservados quando chegam atualizações do servidor.

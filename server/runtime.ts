@@ -6,8 +6,17 @@ import type {
   FollowupExecution,
 } from "../shared/model.js";
 import { base } from "./domain.js";
-import { operation, testContactAllowed, isRecordJob } from "./operation.js";
+import {
+  operation,
+  testContactAllowed,
+  isRecordJob,
+  photoHandoff,
+} from "./operation.js";
+import { hydrateContext } from "./central-context.js";
 import { requestHuman } from "./handoff.js";
+import { deliverTurn } from "./turn-delivery.js";
+import { processAction } from "./tool-actions.js";
+import { queueStage } from "./workflow.js";
 import { armFollowup, nextBusinessTime } from "./followup.js";
 import { generateAgent, type AgentInput, type AgentResult } from "./agent.js";
 import { CentralClient } from "./integrations/central.js";
@@ -18,6 +27,13 @@ type Sender = {
     text: string,
     intentId: string,
   ): Promise<{ mensagem: { id: string; status: string } }>;
+  readContext?: CentralClient["readContext"];
+  setTyping?: CentralClient["setTyping"];
+  transferHuman?: CentralClient["transferHuman"];
+  moveStage?: (job: RuntimeJob) => Promise<void>;
+  notifyHuman?: (
+    handoff: import("../shared/model.js").HumanHandoff,
+  ) => Promise<void>;
   recordHandoffNote?(
     handoff: import("../shared/model.js").HumanHandoff,
     attempt: number,
@@ -32,7 +48,13 @@ export async function recoverRuntimeJobs(store: Store) {
   await store.transaction(async (tx) => {
     for (const j of await tx.list("runtimeJob"))
       if (j.state === "running" || j.state === "dispatching") {
-        if (j.state === "dispatching" && !isRecordJob(j.kind)) {
+        if (
+          j.state === "dispatching" &&
+          j.deliveryParts &&
+          !j.deliveryParts.some((p) => p.state === "sending")
+        ) {
+          await tx.put("runtimeJob", { ...j, state: "pending" });
+        } else if (j.state === "dispatching" && !isRecordJob(j.kind)) {
           await tx.put("runtimeJob", {
             ...j,
             state: "unknown",
@@ -54,6 +76,7 @@ export async function processRuntime(
     sender?: Sender;
     generate?: (input: AgentInput) => Promise<AgentResult>;
     now?: () => Date;
+    pause?: (ms: number) => Promise<void>;
   } = {},
 ) {
   const now = deps.now ?? (() => new Date()),
@@ -84,11 +107,16 @@ export async function processRuntime(
             ? "fora_do_contato_de_teste"
             : !contact.automationAllowed
               ? "automacao_pausada"
-              : conversation.status !== "active"
+              : conversation.status !== "active" &&
+                  !(
+                    j.handoffAckId &&
+                    conversation.handoffId === j.handoffAckId &&
+                    conversation.status === "paused"
+                  )
                 ? "conversa_inativa"
                 : conversation.deliveryUnknown
                   ? "entrega_pendente_de_conciliacao"
-                  : conversation.cycle !== j.cycle
+                  : conversation.cycle !== j.cycle && !j.handoffAckId
                     ? "lead_respondeu"
                     : j.policyRevision !== op.revision
                       ? "configuracao_alterada"
@@ -164,6 +192,14 @@ export async function processRuntime(
     return { ...j, attempts: j.attempts + 1 };
   });
   if (!job) return false;
+  if (
+    job.kind === "record_stage" ||
+    job.kind === "notify_human" ||
+    job.kind === "record_transfer"
+  ) {
+    await processAction(store, c, job, sender);
+    return true;
+  }
   if (job.kind === "record_handoff") {
     const handoff = await store.transaction((tx) =>
       tx.get("handoff", job.executionId ?? ""),
@@ -278,9 +314,12 @@ export async function processRuntime(
   }
   let dispatched = false;
   try {
+    if (!job.deliveryParts) await hydrateContext(store, c, job, sender);
     const context = await store.transaction(async (tx) => ({
       conversation: await tx.get("conversation", job.conversationId),
       contact: await tx.get("contact", job.contactId),
+      settings: await tx.get("settings", "agent"),
+      op: await operation(tx),
       messages: (await tx.list("message"))
         .filter((m) => m.conversationId === job.conversationId)
         .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
@@ -296,31 +335,52 @@ export async function processRuntime(
       step: job.step,
       contact: context.contact,
       environment: "production",
+      photoCount: context.conversation?.photoCount ?? 0,
+      forceHandoff:
+        photoHandoff(context.op) &&
+        context.messages.some(
+          (m) =>
+            m.messageType === "imagem" &&
+            m.occurredAt > (context.conversation?.lastOutboundAt ?? ""),
+        ),
     };
-    const result = await (
-      deps.generate ??
-      ((input) =>
-        generateAgent(store, c, input, {
-          canContinue: () =>
-            store.transaction(async (tx) => {
-              const latest = await tx.get("runtimeJob", job.id);
-              const cv = await tx.get("conversation", job.conversationId);
-              const contact = await tx.get("contact", job.contactId);
-              const op = await operation(tx);
-              return (
-                latest?.state === "running" &&
-                cv?.cycle === job.cycle &&
-                cv.status === "active" &&
-                !cv.deliveryUnknown &&
-                !!contact?.automationAllowed &&
-                testContactAllowed(op, contact) &&
-                op.revision === job.policyRevision &&
-                (op.agentEnabled || (c.demo && !!job.demoOnly)) &&
-                (job.kind !== "followup" || op.followup.enabled)
-              );
-            }),
-        }))
-    )(input);
+    const result = job.deliveryParts
+      ? {
+          text: job.resultText!,
+          reason: "",
+          handoff: job.savedHandoff,
+          qualification: job.savedQualification,
+          parts: [],
+          trace: [],
+          simulated: c.demo,
+          inputTokens: 0,
+          outputTokens: 0,
+          latencyMs: 0,
+        }
+      : await (
+          deps.generate ??
+          ((input) =>
+            generateAgent(store, c, input, {
+              canContinue: () =>
+                store.transaction(async (tx) => {
+                  const latest = await tx.get("runtimeJob", job.id);
+                  const cv = await tx.get("conversation", job.conversationId);
+                  const contact = await tx.get("contact", job.contactId);
+                  const op = await operation(tx);
+                  return (
+                    latest?.state === "running" &&
+                    cv?.cycle === job.cycle &&
+                    cv.status === "active" &&
+                    !cv.deliveryUnknown &&
+                    !!contact?.automationAllowed &&
+                    testContactAllowed(op, contact) &&
+                    op.revision === job.policyRevision &&
+                    (op.agentEnabled || (c.demo && !!job.demoOnly)) &&
+                    (job.kind !== "followup" || op.followup.enabled)
+                  );
+                }),
+            }))
+        )(input);
     const dispatch = await store.transaction(async (tx) => {
       const latest = await tx.get("runtimeJob", job.id),
         conversation = await tx.get("conversation", job.conversationId),
@@ -330,8 +390,13 @@ export async function processRuntime(
         !latest ||
         latest.state !== "running" ||
         !conversation ||
-        conversation.cycle !== job.cycle ||
-        conversation.status !== "active" ||
+        (conversation.cycle !== job.cycle && !latest.handoffAckId) ||
+        (conversation.status !== "active" &&
+          !(
+            latest.handoffAckId &&
+            conversation.handoffId === latest.handoffAckId &&
+            conversation.status === "paused"
+          )) ||
         !contact?.automationAllowed ||
         !testContactAllowed(op, contact) ||
         conversation.deliveryUnknown ||
@@ -381,46 +446,99 @@ export async function processRuntime(
       }
       if (result.handoff && !op.handoff?.enabled)
         throw new IntegrationError("encaminhamento_desativado");
-      if (result.handoff)
-        await requestHuman(
+      if (result.qualification) {
+        await tx.put("contact", {
+          ...contact,
+          qualification: { ...contact.qualification, ...result.qualification },
+        });
+      }
+      const updatedContact = (await tx.get("contact", job.contactId))!;
+      if (
+        context.op.workflow?.enabled &&
+        !conversation.handoffId &&
+        !result.handoff &&
+        !job.deliveryParts
+      )
+        await queueStage(
           tx,
           conversation,
-          result.handoff.reason,
-          result.handoff.summary,
+          updatedContact,
+          context.op.workflow.stageOnStart,
+          op,
         );
+      let humanId = latest.handoffAckId;
+      if (result.handoff && !humanId)
+        humanId = (
+          await requestHuman(
+            tx,
+            conversation,
+            result.handoff.reason,
+            result.handoff.summary,
+          )
+        )?.id;
       const executionId = job.kind === "followup" ? base().id : undefined;
       await tx.put("runtimeJob", {
         ...latest,
         state: "dispatching",
         executionId,
         resultText: result.text,
+        handoffAckId: humanId,
+        savedHandoff: result.handoff,
+        savedQualification: result.qualification,
       });
       return { conversation, executionId };
     });
     if (!dispatch) return true;
     dispatched = true;
-    const sent = c.demo
-      ? { mensagem: { id: "simulated:" + job.id, status: "enviada" } }
-      : await sender.sendText(
-          job.conversationId,
-          result.text!,
-          "pulsoo:turn:" + baseIntent(job.id),
-        );
-    const sentAt = now().toISOString();
+    const deliveryJob = (await store.transaction((tx) =>
+      tx.get("runtimeJob", job.id),
+    ))!;
+    const delivered = await deliverTurn(
+      store,
+      c,
+      deliveryJob,
+      result.text!,
+      context.settings!,
+      sender,
+      now,
+      deps.pause,
+    );
+    if (delivered.cancelled) return true;
+    const sent = { mensagem: { id: delivered.lastId, status: "enviada" } };
+    const sentAt = delivered.sentAt;
     await store.transaction(async (tx) => {
       const latest = await tx.get("runtimeJob", job.id);
       await tx.put("runtimeJob", { ...(latest ?? job), state: "done" });
-      await tx.put("message", {
-        ...base("out:" + job.id),
-        conversationId: job.conversationId,
-        role: "assistant",
-        text: result.text!,
-        occurredAt: sentAt,
-        source: job.kind === "followup" ? "followup" : "reply",
-        centralMessageId: c.demo ? undefined : sent.mensagem.id,
-        simulated: c.demo,
-      });
       const conversation = await tx.get("conversation", job.conversationId);
+      if (latest?.handoffAckId) {
+        const h = await tx.get("handoff", latest.handoffAckId);
+        if (h) {
+          await tx.put("handoff", {
+            ...h,
+            farewellState: "done",
+            ...(c.central.extendedApi
+              ? { transferState: "pending" as const }
+              : {}),
+          });
+          if (
+            c.central.extendedApi &&
+            !(await tx.get("runtimeJob", "transfer:" + h.id))
+          )
+            await tx.put("runtimeJob", {
+              ...base("transfer:" + h.id),
+              kind: "record_transfer",
+              conversationId: h.conversationId,
+              contactId: h.contactId,
+              state: "pending",
+              attempts: 0,
+              dueAt: sentAt,
+              cycle: job.cycle,
+              step: 0,
+              policyRevision: job.policyRevision,
+              executionId: h.id,
+            });
+        }
+      }
       if (job.kind === "followup" && dispatch.executionId) {
         const execution: FollowupExecution = {
           ...base(dispatch.executionId),

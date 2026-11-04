@@ -64,3 +64,11 @@ Nesta revisão, Pulsoo e Coolify apresentaram timeout simultâneo antes de qualq
 - Verificação do código: 62 testes, 61 aprovados e um PostgreSQL descartável condicional ignorado; TypeScript e build aprovados. Nenhuma nova dependência nesta alteração.
 - Atendimento do piloto habilitado somente para novas mensagens do número autorizado. Teste WhatsApp de ponta a ponta, chegada de imagem, nota realmente gravada na Central e follow-up com tarefa concluída aguardam validação com o operador. Presença de credencial não comprova escopo notas:escrever ou funcionamento da nota remota.
 - Roteiro e telefone do operador não foram publicados no repositório. A interface mostra a pausa local; não transfere responsável na Central nem envia aviso para grupo.
+
+## Revisão 0.3 — correção após teste do operador
+
+O operador identificou repetição de perguntas, atraso curto para agrupamento, entrega em texto único, ausência de despedida, etapa sem mapeamento e nota baseada em recorte de conversa. O piloto foi pausado antes desta revisão. A direção foi corrigida: produto genérico por instalação; a Nobre é somente o primeiro cenário de homologação.
+
+Implementados entrega real em partes com confirmação durável, ritmo configurável, qualificação em campos dinâmicos, resumo estruturado, ações de etapa/aviso, editor de fluxo/ferramentas e limpeza de teste com restauração. Adaptadores complementares aguardam publicação/homologação da Central e ficam desligados por variável padrão. Não houve alteração no código da Central nem em outros recursos do Coolify.
+
+A contagem final, evidência visual, implantação e limpeza remota são registradas após sua execução. Não tratar esta nota de implementação como teste WhatsApp completo.

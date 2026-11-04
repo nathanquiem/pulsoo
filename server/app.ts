@@ -23,6 +23,8 @@ import {
   isRecordJob,
 } from "./operation.js";
 import { requestHuman } from "./handoff.js";
+import { testHistoryRoutes } from "./test-history.js";
+import { toolDescriptions } from "./workflow.js";
 import {
   observeInbound,
   syncConversationGate,
@@ -66,6 +68,7 @@ const contactSchema = z
     phone: z.string().max(30),
     stage: label,
     notes: text,
+    opportunityId: z.string().max(100).optional(),
   })
   .strict();
 const proposalSchema = z
@@ -311,10 +314,19 @@ export async function buildApp(c: Config, store: Store) {
     reply.clearCookie("pulsoo", { path: "/" });
     return { ok: true };
   });
+  testHistoryRoutes(app, store);
   app.get("/api/bootstrap", async () =>
     publicSafe(
       await store.transaction(async (tx) => ({
         operation: await operation(tx),
+        tools: toolDescriptions,
+        centralExtensions: !!c.central.extendedApi,
+        archives: (await tx.list("testArchive")).map((a) => ({
+          id: a.id,
+          createdAt: a.createdAt,
+          count: a.records.length,
+          restoredAt: a.restoredAt,
+        })),
         conversations: await tx.list("conversation"),
         handoffs: await tx.list("handoff"),
         messages: (await tx.list("message")).slice(-250),
@@ -455,9 +467,14 @@ export async function buildApp(c: Config, store: Store) {
           tone: label,
           instructions: text,
           splitMode: z.enum(["single", "paragraphs"]),
-          maxChunks: z.number().int().min(1).max(5),
-          delayMs: z.number().int().min(0).max(5000),
+          maxChunks: z.number().int().min(1).max(8),
+          delayMs: z.number().int().min(0).max(15000),
           voiceMode: z.enum(["text", "audio", "adaptive"]),
+          groupingMs: z.number().int().min(0).max(30000).optional(),
+          replyDelayMs: z.number().int().min(0).max(15000).optional(),
+          maxCharsPerMessage: z.number().int().min(100).max(4000).optional(),
+          naturalParagraphs: z.boolean().optional(),
+          typing: z.boolean().optional(),
         })
         .strict()
         .parse(req.body);
@@ -498,6 +515,7 @@ export async function buildApp(c: Config, store: Store) {
             .max(20),
           mode: z.enum(["simulation", "live"]),
           kind: z.enum(["reply", "followup"]).default("reply"),
+          photoCount: z.number().int().min(0).max(10).default(0),
         })
         .strict()
         .parse(req.body);
@@ -507,6 +525,7 @@ export async function buildApp(c: Config, store: Store) {
         publicSafe(input.messages, c),
         input.mode,
         input.kind,
+        input.photoCount,
       );
       return publicSafe(result, c);
     },
@@ -588,6 +607,7 @@ export async function buildApp(c: Config, store: Store) {
           company: old?.company ?? "",
           phone: string(contactData.telefone) || old?.phone || "",
           notes: old?.notes ?? "",
+          opportunityId: string(opportunity.id) || old?.opportunityId,
           stage: string(stage.id) || old?.stage || "Novo contato",
           conversationId: string(attendance.conversa_id) || old?.conversationId,
           automationAllowed:
@@ -650,56 +670,24 @@ export async function buildApp(c: Config, store: Store) {
             text:
               message.tipo === "texto" && string(message.conteudo)
                 ? string(message.conteudo).slice(0, 12000)
-                : "[Mensagem " +
-                  string(message.tipo) +
-                  " recebida; conteúdo ou transcrição pendente]",
+                : message.tipo === "imagem" &&
+                    (await operation(tx)).workflow?.enabled
+                  ? "[Foto recebida; disponível para avaliação da equipe na Central]"
+                  : "[Mensagem " +
+                    string(message.tipo) +
+                    " recebida; conteúdo ou transcrição pendente]",
             occurredAt,
             receivedAt,
+            messageType: string(message.tipo),
             channel,
             allow:
               permitted &&
-              message.tipo === "texto" &&
-              !!string(message.conteudo),
+              ((message.tipo === "texto" && !!string(message.conteudo)) ||
+                (message.tipo === "imagem" &&
+                  (!!(await operation(tx)).workflow?.enabled ||
+                    !!(await operation(tx)).handoff?.onImage))),
             stage: stageId,
           });
-        }
-        const op = await operation(tx);
-        const cv = await tx.get("conversation", conversationId);
-        const contact = await tx.get("contact", contactId);
-        if (
-          type === "whatsapp.mensagem_recebida" &&
-          message.direcao === "entrada" &&
-          message.tipo === "imagem" &&
-          permitted &&
-          !completed &&
-          op.agentEnabled &&
-          op.handoff?.enabled &&
-          op.handoff.onImage &&
-          testContactAllowed(op, contact) &&
-          cv &&
-          !cv.handoffId &&
-          !cv.manualState &&
-          cv.status !== "opted_out"
-        ) {
-          const recent = (await tx.list("message"))
-            .filter(
-              (m) =>
-                m.conversationId === conversationId && m.source !== "followup",
-            )
-            .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
-            .slice(-8);
-          await requestHuman(
-            tx,
-            cv,
-            "Fotos recebidas; orçamento e avaliação técnica com a equipe.",
-            recent
-              .map(
-                (m) =>
-                  (m.role === "user" ? "Lead: " : "Atendimento: ") + m.text,
-              )
-              .join("\n")
-              .slice(-1800),
-          );
         }
         if (type === "negocio.etapa_alterada")
           await applyStage(
@@ -723,8 +711,24 @@ export async function buildApp(c: Config, store: Store) {
 
   app.put("/api/operation", async (req) =>
     store.transaction(async (tx) => {
-      const data = operationSchema.parse(req.body),
-        old = await operation(tx),
+      const data = operationSchema.parse(req.body);
+      if (data.agentEnabled && data.workflow?.enabled && !data.handoff?.enabled)
+        throw new DomainError(
+          "habilite_o_encaminhamento_humano_para_este_fluxo",
+          409,
+        );
+      if(data.agentEnabled && data.workflow?.enabled && data.workflow.notification.kind!=="none" && !data.workflow.notification.targetId)throw new DomainError("configure_o_destino_da_equipe_antes_de_ativar",409);
+      if (
+        data.agentEnabled &&
+        data.workflow?.enabled &&
+        data.workflow.notification.kind === "group" &&
+        !c.central.extendedApi
+      )
+        throw new DomainError(
+          "avisos_de_grupo_exigem_atualizacao_da_central",
+          409,
+        );
+      const old = await operation(tx),
         next = { ...old, ...data, revision: old.revision + 1 };
       await tx.put("operation", next);
       for (const j of await tx.list("runtimeJob"))
