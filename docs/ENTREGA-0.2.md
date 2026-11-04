@@ -39,3 +39,13 @@ Nenhum código Fazer AI incorporado. A implementação e os contratos são próp
 - Teste da fila ocorreu fora do expediente de São Paulo: a primeira tentativa ficou aguardando. Foi usado temporariamente um fuso em expediente para executar o cenário e depois restaurado America/Sao_Paulo, 09:00–18:00. Módulos e atendimento automático ficaram desligados.
 - Capturas: pulsoo-modular.png, pulsoo-followup-desktop.png e pulsoo-followup-mobile.png na pasta de visualizações da sessão.
 - Servidor/aba de QA encerrados após revisão. Execute npm start para abrir novamente.
+
+## Homologação inicial na VPS — 04/11/2026
+
+- Código operacional a73778d publicado e implantado no recurso exclusivo do Pulsoo no Coolify. PostgreSQL saudável, HTTPS válido e /health com HTTP 200. Sem login, /api/bootstrap retorna 401; webhook sem assinatura retorna 401.
+- Operador confirmou ativação do webhook na Central. Isso não comprova atendimento de ponta a ponta.
+- Laboratório OpenAI real autenticado: uma mensagem fictícia gerou uma consulta ao especialista de contexto e resposta do principal. Painel registrou três chamadas e 1.134 tokens; nenhuma mensagem/tarefa foi enviada à Central. Tarifas e custo monetário continuam desconhecidos.
+- Limites padrão: uma delegação por turno, histórico recente de 24.000 caracteres, saída do principal de 700 tokens. Cancelamento é revalidado antes de chamadas subsequentes; uso permanece registrado quando etapa posterior falha.
+- Verificações: TypeScript e build aprovados; 52 testes, 51 aprovados, um teste condicional de PostgreSQL descartável ignorado. npm audit --omit=dev: nenhuma vulnerabilidade conhecida na consulta desta data.
+- Atendimento automático e módulos comerciais continuam desligados. Próximo passo depende do roteiro aprovado da operação e isolamento do contato de homologação. Voz, transcrição, notas externas e ferramentas Google/agendas continuam nos limites descritos no README.
+- A implantação foi validada na VPS; backup/restauração e atendimento real com pausa humana, follow-up e tarefa concluída ainda precisam de homologação específica.
