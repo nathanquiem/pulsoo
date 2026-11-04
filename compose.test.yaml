@@ -1,0 +1,16 @@
+services:
+  test-db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: pulsoo_test
+      POSTGRES_USER: pulsoo_test
+      POSTGRES_PASSWORD: pulsoo_test_local_only
+    ports:
+      - "127.0.0.1:55439:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pulsoo_test -d pulsoo_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 20

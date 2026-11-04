@@ -1,0 +1,39 @@
+services:
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pulsoo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configure POSTGRES_PASSWORD}
+      PULSOO_DB_PASSWORD: ${PULSOO_DB_PASSWORD:?Configure PULSOO_DB_PASSWORD}
+    volumes:
+      - pulsoo_database:/var/lib/postgresql/data
+      - ./infra/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pulsoo"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  app:
+    build: .
+    restart: unless-stopped
+    init: true
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DEMO_MODE: "false"
+      STORAGE_DRIVER: postgres
+      HOST: 0.0.0.0
+      PORT: 3081
+      DATABASE_URL: postgresql://pulsoo_app:${PULSOO_DB_PASSWORD}@postgres:5432/pulsoo
+    ports:
+      - "${BIND_ADDRESS:-127.0.0.1}:3081:3081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 35s
+    deploy:
+      replicas: 1
+volumes:
+  pulsoo_database:

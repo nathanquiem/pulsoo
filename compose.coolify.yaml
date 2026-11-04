@@ -1,0 +1,65 @@
+# Coolify: aplicação Docker Compose a partir do repositório Git.
+# Vincule o domínio ao serviço app, porta interna 3081.
+services:
+  postgres:
+    image: postgres:17-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: pulsoo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Configure POSTGRES_PASSWORD}
+      PULSOO_DB_PASSWORD: ${PULSOO_DB_PASSWORD:?Configure PULSOO_DB_PASSWORD}
+    volumes:
+      - pulsoo_database:/var/lib/postgresql/data
+      - ./infra/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d pulsoo"]
+      interval: 5s
+      timeout: 3s
+      retries: 15
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      NODE_ENV: production
+      DEMO_MODE: "false"
+      STORAGE_DRIVER: postgres
+      HOST: 0.0.0.0
+      PORT: 3081
+      APP_URL: ${APP_URL:?Configure APP_URL HTTPS}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Configure ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Configure ADMIN_PASSWORD}
+      SESSION_SECRET: ${SESSION_SECRET:?Configure SESSION_SECRET}
+      DATABASE_URL: postgresql://pulsoo_app:${PULSOO_DB_PASSWORD}@postgres:5432/pulsoo
+      CENTRAL_BASE_URL: ${CENTRAL_BASE_URL:-}
+      CENTRAL_EMPRESA_ID: ${CENTRAL_EMPRESA_ID:-}
+      CENTRAL_API_KEY: ${CENTRAL_API_KEY:-}
+      CENTRAL_WEBHOOK_SECRET: ${CENTRAL_WEBHOOK_SECRET:-}
+      CENTRAL_CHANNEL_MODE: ${CENTRAL_CHANNEL_MODE:-}
+      CENTRAL_FOLLOWUP_RESPONSAVEL_ID: ${CENTRAL_FOLLOWUP_RESPONSAVEL_ID:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      OPENAI_MODEL_SUMMARY: ${OPENAI_MODEL_SUMMARY:-}
+      ELEVENLABS_API_KEY: ${ELEVENLABS_API_KEY:-}
+      ELEVENLABS_VOICE_ID: ${ELEVENLABS_VOICE_ID:-}
+      ASSEMBLYAI_API_KEY: ${ASSEMBLYAI_API_KEY:-}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REFRESH_TOKEN: ${GOOGLE_REFRESH_TOKEN:-}
+      CALCOM_API_KEY: ${CALCOM_API_KEY:-}
+      CALCOM_API_VERSION_SLOTS: ${CALCOM_API_VERSION_SLOTS:-2024-09-04}
+      CALCOM_API_VERSION_BOOKINGS: ${CALCOM_API_VERSION_BOOKINGS:-2024-08-13}
+      APPROVAL_WEBHOOK_URL: ${APPROVAL_WEBHOOK_URL:-}
+    expose:
+      - "3081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    stop_grace_period: 35s
+    deploy:
+      replicas: 1
+volumes:
+  pulsoo_database:
