@@ -95,3 +95,7 @@ Fonte: https://github.com/nathanquiem/pulsoo. No Coolify, use compose.coolify.ya
 ## Uso do código
 
 O repositório é público. Nenhuma licença de código aberto foi concedida ao código próprio do Pulsoo; as dependências mantêm suas respectivas licenças. Dados, prompts de clientes e credenciais pertencem à instalação e ficam fora do Git.
+
+## Roteiro orientado por etapas
+
+Agente > Atendimento inclui modelo copiável com objetivos, perguntas, ramificações, ferramentas e condições de avanço. [Como configurar](docs/ROTEIRO-POR-ETAPAS.md). O roteiro conversacional não altera automaticamente IDs de etapas do CRM. Campos obrigatórios/foto são validados pelo backend antes da conclusão; regras arbitrárias do prompt continuam orientações ao modelo.

@@ -49,6 +49,7 @@ import type {
 import { money } from "../../shared/model";
 import "./style.css";
 import { RhythmEditor, WorkflowEditor } from "./WorkflowEditor";
+import { PromptGuide } from "./PromptGuide";
 type Data = {
   demo: boolean;
   contacts: Contact[];
@@ -1159,6 +1160,7 @@ function AgentEditor({
                 Tom da conversa
                 <input name="tone" defaultValue={data.settings.tone} required />
               </label>
+              <PromptGuide />
               <label>
                 Instruções
                 <textarea
