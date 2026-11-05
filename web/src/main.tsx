@@ -2566,7 +2566,7 @@ function TestHistory({
             }
             onClick={() =>
               void act(
-                () => api("/test-history/reset"),
+                () => api("/test-history/reset", undefined, "POST"),
                 "Memória do teste limpa; cópia disponível abaixo.",
               )
             }
@@ -2585,7 +2585,13 @@ function TestHistory({
               <button
                 disabled={busy || data.operation.agentEnabled || !!a.restoredAt}
                 onClick={() =>
-                  void act(() => api("/test-history/" + a.id + "/restore"))
+                  void act(() =>
+                    api(
+                      "/test-history/" + a.id + "/restore",
+                      undefined,
+                      "POST",
+                    ),
+                  )
                 }
               >
                 Restaurar
