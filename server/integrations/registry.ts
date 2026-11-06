@@ -1,3 +1,4 @@
+import { notificationConfigured } from "../human-notification.js";
 import type { Config } from "../config.js";
 import type { IntegrationStatus } from "../../shared/model.js";
 export function integrations(c: Config): IntegrationStatus[] {
@@ -24,6 +25,15 @@ export function integrations(c: Config): IntegrationStatus[] {
     limitation,
   });
   return [
+    item(
+      "human-notification",
+      "Aviso humano por webhook",
+      "n8n recebe o resumo e confirma o envio.",
+      "Atendimento",
+      notificationConfigured(c),
+      ["HMAC", "Snapshot estruturado", "Confirmação síncrona ou callback"],
+      "Credenciais configuradas não equivalem a envio homologado. HTTP 202 aguarda confirmação.",
+    ),
     item(
       "central",
       "Central",

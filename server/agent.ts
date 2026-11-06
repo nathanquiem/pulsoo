@@ -1,4 +1,6 @@
 import OpenAI from "openai";
+import { flowProgress, factPresent, lookupInformation } from "./flow-state.js";
+import { toolDescription } from "./tool-catalog.js";
 import { z } from "zod";
 import type { Config } from "./config.js";
 import type { Store } from "./store.js";
@@ -70,6 +72,8 @@ function redact(value: string, c: Config) {
     c.google.refreshToken,
     c.calKey,
     c.approvalWebhook,
+    c.humanNotification.url,
+    c.humanNotification.secret,
     c.databaseUrl ?? "",
     c.password,
     c.secret,
@@ -103,6 +107,7 @@ export async function generateAgent(
     outputTokens = 0;
   let handoff: AgentResult["handoff"];
   let qualification: Record<string, string> | undefined;
+  let handoffKind: "requested" | "question" | "ready" | undefined;
   const simulated = c.demo || request.mode === "simulation";
   const specialists = activeSpecialists(op),
     last = request.messages.at(-1)?.content.toLowerCase() ?? "";
@@ -266,12 +271,44 @@ export async function generateAgent(
       op.workflow?.enabled && request.kind === "reply"
         ? op.workflow
         : undefined;
+    const informationTools: OpenAI.Responses.Tool[] = workflow?.knowledge
+      ?.length
+      ? [
+          {
+            type: "function",
+            name: "consultar_informacoes",
+            strict: true,
+            description:
+              toolDescription(
+                "consultar_informacoes",
+                workflow.toolGuidance?.consultar_informacoes,
+              ) +
+              "\nAssuntos aprovados: " +
+              workflow.knowledge.map((k) => k.question).join("; "),
+            parameters: {
+              type: "object",
+              properties: {
+                pergunta: {
+                  type: "string",
+                  description:
+                    "Dúvida específica em português, usando o assunto aprovado quando pertinente.",
+                },
+              },
+              required: ["pergunta"],
+              additionalProperties: false,
+            },
+          },
+        ]
+      : [];
     const factProperties = Object.fromEntries(
       (workflow?.fields ?? []).map((f) => [
         f.key,
         {
           type: ["string", "null"],
-          description: f.label + "; null se ainda não informado.",
+          description:
+            f.label +
+            ". Fonte: fala do lead ou fatos conhecidos do contexto; null se desconhecido. Não usar pendente/não informado como resposta. Pergunta aprovada: " +
+            f.question,
         },
       ]),
     );
@@ -287,8 +324,10 @@ export async function generateAgent(
             type: "function",
             name: "responder_atendimento",
             strict: true,
-            description:
-              "Registra somente fatos informados pelo lead e prepara a resposta. O backend controla entrega e ferramentas externas.",
+            description: toolDescription(
+              "responder_atendimento",
+              workflow.toolGuidance?.responder_atendimento,
+            ),
             parameters: {
               type: "object",
               properties: { facts: factsSchema, message: { type: "string" } },
@@ -305,14 +344,28 @@ export async function generateAgent(
               type: "function",
               name: "solicitar_humano",
               strict: true,
-              description:
-                "Solicita atendimento humano e encerra este turno. O backend pausa novas respostas e follow-ups. Use para pergunta sem resposta aprovada, pedido de humano ou conclusão da qualificação. Não afirma transferência na Central.",
+              description: toolDescription(
+                "solicitar_humano",
+                workflow?.toolGuidance?.solicitar_humano,
+              ),
               parameters: {
                 type: "object",
                 properties: {
-                  reason: { type: "string" },
-                  summary: { type: "string" },
-                  message: { type: "string" },
+                  reason: {
+                    type: "string",
+                    description:
+                      "Motivo concreto do encaminhamento, incluindo a dúvida ainda sem resposta.",
+                  },
+                  summary: {
+                    type: "string",
+                    description:
+                      "Síntese factual com dados e pendências, sem copiar a conversa inteira.",
+                  },
+                  message: {
+                    type: "string",
+                    description:
+                      "Mensagem natural que responde ao pedido/dúvida e explica o próximo passo. Para question, reconhecer explicitamente a pergunta sem inventar a resposta. Não anunciar envio confirmado.",
+                  },
                   ...(workflow
                     ? {
                         facts: factsSchema,
@@ -367,6 +420,12 @@ export async function generateAgent(
             requirePhoto: workflow.requirePhoto,
             photosReceived: request.photoCount ?? 0,
             nextStep: workflow.nextStep,
+            progress: flowProgress(
+              op,
+              request.contact?.qualification,
+              request.photoCount,
+            ),
+            steps: workflow.steps ?? [],
           }) +
           "\nUse responder_atendimento para responder e registrar fatos; use solicitar_humano para encaminhar. Inclua somente fatos informados, null para pendências. Preserve o acolhimento do roteiro, reconheça o motivo antes da próxima pergunta e escreva em parágrafos naturais separados por duas quebras. Não repita perguntas já respondidas. Não afirme que moveu etapas, avisou a equipe ou analisou fotos: o backend executa e confirma. Máximo de " +
           (settings.maxCharsPerMessage ?? 4000) +
@@ -374,6 +433,7 @@ export async function generateAgent(
           settings.maxChunks +
           " balões."
         : "") +
+      "\nDÚVIDAS E RETOMADA: se houver uma dúvida fora do passo atual, consulte consultar_informacoes quando disponível. Use somente respostas aprovadas. Resolvida a dúvida, reconheça o que o lead disse e retome a primeira pendência, sem repetir abertura. Informação ausente pode exigir humano; não transforme toda pergunta em recusa. Em solicitar_humano question/requested, escreva uma mensagem específica ao motivo; a despedida de conclusão só se aplica a ready. O contexto de ferramentas é vinculado pelo servidor: não peça telefone/IDs já disponíveis nem copie expressões n8n. Não crie uma chamada pensar_agente ou exponha raciocínio interno." +
       (request.forceHandoff
         ? "\nFOTOS RECEBIDAS: solicite humano agora, registre fatos e resumo organizado. A equipe fará a avaliação. Não interprete a imagem."
         : "") +
@@ -382,17 +442,24 @@ export async function generateAgent(
           stepInstruction +
           "\nO lead está em silêncio. Retome o contexto sem pressão. Retorne skip quando a conversa terminou, houver recusa ou nada útil a acrescentar."
         : "");
-    let delegations = 0;
-    for (let n = 0; n <= c.agentLimits.maxDelegations; n++) {
+    let delegations = 0,
+      informationReads = 0;
+    const maxRounds =
+      c.agentLimits.maxDelegations + (informationTools.length ? 2 : 0);
+    for (let n = 0; n <= maxRounds; n++) {
       const canConsult =
-        n < c.agentLimits.maxDelegations &&
-        delegations < c.agentLimits.maxDelegations;
+        n < maxRounds && delegations < c.agentLimits.maxDelegations;
       const response = await callModel(
         {
           model: c.model,
           instructions: instruction,
           input,
-          tools: [...(canConsult ? tools : []), ...humanTools, ...replyTools],
+          tools: [
+            ...(canConsult ? tools : []),
+            ...(n < maxRounds && informationReads < 2 ? informationTools : []),
+            ...humanTools,
+            ...replyTools,
+          ],
           tool_choice:
             request.forceHandoff && humanTools.length
               ? { type: "function", name: "solicitar_humano" }
@@ -431,7 +498,14 @@ export async function generateAgent(
             .parse(JSON.parse(response.output_text));
           text = result.action === "send" ? result.text.trim() : null;
           reason = result.reason;
-        } else text = response.output_text.trim();
+        } else {
+          if (workflow)
+            throw new DomainError(
+              "modelo_nao_usou_ferramenta_de_resposta",
+              409,
+            );
+          text = response.output_text.trim();
+        }
         break;
       }
       const replyCall = calls.find(
@@ -450,7 +524,7 @@ export async function generateAgent(
         qualification = Object.fromEntries(
           Object.entries(args.facts).filter(
             ([key, value]) =>
-              value !== null && workflow.fields.some((f) => f.key === key),
+              factPresent(value) && workflow.fields.some((f) => f.key === key),
           ),
         ) as Record<string, string>;
         text = args.message;
@@ -492,10 +566,18 @@ export async function generateAgent(
           qualification = Object.fromEntries(
             Object.entries(args.facts as Record<string, string | null>).filter(
               ([key, value]) =>
-                value !== null && workflow.fields.some((f) => f.key === key),
+                factPresent(value) &&
+                workflow.fields.some((f) => f.key === key),
             ),
           ) as Record<string, string>;
-        text = workflow?.farewell || args.message;
+        handoffKind =
+          "reasonKind" in args
+            ? (args.reasonKind as "requested" | "question" | "ready")
+            : undefined;
+        text =
+          workflow && handoffKind === "ready"
+            ? workflow.farewell
+            : args.message;
         reason = args.reason;
         if (
           workflow &&
@@ -504,16 +586,21 @@ export async function generateAgent(
           !request.forceHandoff
         ) {
           const known = { ...request.contact?.qualification, ...qualification };
-          const missing = workflow.fields.find(
-            (f) => f.required && !known[f.key],
-          );
-          if (missing) {
-            handoff = undefined;
-            text = missing.question;
-          } else if (workflow.requirePhoto && !request.photoCount) {
+          const progress = flowProgress(op, known, request.photoCount);
+          if (!progress.ready) {
             handoff = undefined;
             text =
-              "Você consegue enviar uma foto do local para a equipe avaliar?";
+              progress.question ||
+              workflow.fields.find((f) =>
+                progress.missingFields.includes(f.key),
+              )?.question ||
+              "Você consegue enviar uma foto para a equipe avaliar?";
+            trace.push({
+              name: "pre_condicao",
+              detail:
+                "Conclusão recusada; falta: " +
+                (progress.missingFields.join(", ") || "foto confirmada"),
+            });
           }
         }
         trace.push({
@@ -521,11 +608,13 @@ export async function generateAgent(
           detail:
             request.environment === "lab"
               ? "Prévia: pausaria a automação e encaminharia o contexto; nenhum atendimento alterado."
-              : "Encaminhamento humano solicitado.",
+              : handoff
+                ? "Encaminhamento humano validado; ações serão executadas pelo backend."
+                : "Encaminhamento não executado; coleta pendente.",
         });
         break;
       }
-      if (!canConsult)
+      if (n >= maxRounds || calls.length > 8)
         throw new DomainError("limite_de_consultas_atingido", 409);
       for (const item of response.output)
         if (
@@ -536,7 +625,23 @@ export async function generateAgent(
           input.push(item);
       for (const call of calls) {
         let output: unknown = { error: "especialista_nao_autorizado" };
-        if (call.name === "consultar_especialista") {
+        if (
+          call.name === "consultar_informacoes" &&
+          informationTools.length &&
+          informationReads < 2
+        ) {
+          informationReads++;
+          const args = z
+            .object({ pergunta: z.string().trim().min(1).max(1000) })
+            .strict()
+            .parse(JSON.parse(call.arguments));
+          output = lookupInformation(op, args.pergunta);
+          trace.push({
+            name: "consultar_informacoes",
+            detail: JSON.stringify(output),
+          });
+        }
+        if (call.name === "consultar_especialista" && canConsult) {
           const args = z
             .object({ specialist: z.string(), question: z.string().max(2000) })
             .strict()
@@ -607,7 +712,38 @@ export async function generateAgent(
     if (text === "")
       throw new DomainError("resposta_vazia_ou_limite_de_consultas", 409);
   }
-  if (handoff && op.workflow?.enabled) text = op.workflow.farewell;
+  if (
+    !simulated &&
+    request.kind === "reply" &&
+    op.workflow?.enabled &&
+    op.workflow.autoHandoff &&
+    op.handoff?.enabled &&
+    !handoff &&
+    flowProgress(
+      op,
+      { ...request.contact?.qualification, ...qualification },
+      request.photoCount,
+    ).ready
+  ) {
+    handoff = {
+      reason: "Qualificação concluída conforme condições do fluxo",
+      summary:
+        "Dados estruturados disponíveis para a equipe; conferir pendências opcionais.",
+    };
+    handoffKind = "ready";
+    text = op.workflow.farewell;
+    trace.push({
+      name: "condicoes_do_fluxo",
+      detail:
+        "Conclusão validada pelo backend; campos e fotos exigidos presentes.",
+    });
+  }
+  if (
+    handoff &&
+    op.workflow?.enabled &&
+    (handoffKind === "ready" || request.forceHandoff)
+  )
+    text = op.workflow.farewell;
   if (text) text = redact(text, c);
   if (simulated)
     await store.transaction((tx) =>

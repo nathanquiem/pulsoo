@@ -157,3 +157,9 @@ A API complementar está descrita em docs/PROMPT-CENTRAL-ATENDIMENTO.md. CENTRAL
 POST /api/test-history/reset arquiva apenas a memória dos contatos autorizados, com agente pausado e modo restrito. Consumo, eventos deduplicados e histórico da Central são preservados. GET /api/test-history/{id} baixa a cópia. POST /api/test-history/{id}/restore restaura pausado, sem repetir jobs; recusa sobrepor uma conversa nova. Tudo exige a sessão autenticada da instalação.
 
 O laboratório permite simular recebimento de foto e mostra a prévia do resumo, sem criar notas/avisos reais. Simulação é técnica; avaliação do roteiro exige IA real. Rascunhos do editor de fluxo/ritmo são preservados quando chegam atualizações do servidor.
+
+## Motor 0.4
+
+workflow aceita steps (até 12), autoHandoff, knowledge (até 30 respostas aprovadas) e toolGuidance para funções conhecidas. Passo sem condição ou referência a campo inexistente é recusado. flowState e toolTrace são persistidos no turno validado. Laboratório recebe qualification somente com chaves cadastradas; mantém os fatos apenas na sessão de teste. Mensagem de question/requested não é substituída pela despedida de conclusão.
+
+Aviso via notification.kind=webhook usa HUMAN_NOTIFICATION_WEBHOOK_URL e HUMAN_NOTIFICATION_WEBHOOK_SECRET, somente runtime. Payload congelado por encaminhamento, HMAC e Idempotency-Key permanente. 202 accepted aguarda callback; sent exige UUID/mensagem confirmados. POST /api/webhooks/human-notifications dispensa cookie e exige HMAC válido, janela de cinco minutos e aviso já despachado. Detalhes em AVISO-N8N.md. Estado awaiting_confirmation não é reexecutado na recuperação. Ações remotas interrompidas vão para unknown.

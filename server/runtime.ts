@@ -1,4 +1,5 @@
 import type { Store, Tx } from "./store.js";
+import { flowProgress } from "./flow-state.js";
 import type { Config } from "./config.js";
 import type {
   Conversation,
@@ -48,6 +49,16 @@ export async function recoverRuntimeJobs(store: Store) {
   await store.transaction(async (tx) => {
     for (const j of await tx.list("runtimeJob"))
       if (j.state === "running" || j.state === "dispatching") {
+        if (
+          ["record_stage", "notify_human", "record_transfer"].includes(j.kind)
+        ) {
+          await tx.put("runtimeJob", {
+            ...j,
+            state: "unknown",
+            lastError: "acao_interrompida_conciliar",
+          });
+          continue;
+        }
         if (
           j.state === "dispatching" &&
           j.deliveryParts &&
@@ -320,6 +331,9 @@ export async function processRuntime(
       contact: await tx.get("contact", job.contactId),
       settings: await tx.get("settings", "agent"),
       op: await operation(tx),
+      contactConversationCount: (await tx.list("conversation")).filter(
+        (cv) => cv.contactId === job.contactId,
+      ).length,
       messages: (await tx.list("message"))
         .filter((m) => m.conversationId === job.conversationId)
         .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
@@ -333,7 +347,16 @@ export async function processRuntime(
       mode: c.demo ? "simulation" : "live",
       kind: job.kind === "followup" ? "followup" : "reply",
       step: job.step,
-      contact: context.contact,
+      contact: context.contact
+        ? {
+            ...context.contact,
+            qualification:
+              context.conversation?.qualification ??
+              (context.contactConversationCount === 1
+                ? context.contact.qualification
+                : {}),
+          }
+        : undefined,
       environment: "production",
       photoCount: context.conversation?.photoCount ?? 0,
       forceHandoff:
@@ -449,10 +472,29 @@ export async function processRuntime(
       if (result.qualification) {
         await tx.put("contact", {
           ...contact,
-          qualification: { ...contact.qualification, ...result.qualification },
+          qualification: {
+            ...input.contact?.qualification,
+            ...result.qualification,
+          },
         });
       }
       const updatedContact = (await tx.get("contact", job.contactId))!;
+      const knownFacts = {
+        ...input.contact?.qualification,
+        ...result.qualification,
+      };
+      const progress = flowProgress(op, knownFacts, conversation.photoCount);
+      if (op.workflow?.enabled)
+        await tx.put("conversation", {
+          ...conversation,
+          qualification: knownFacts,
+          flowState: {
+            stepId: progress.stepId,
+            title: progress.title,
+            completedStepIds: progress.completedStepIds,
+            policyRevision: op.revision,
+          },
+        });
       if (
         context.op.workflow?.enabled &&
         !conversation.handoffId &&
@@ -463,7 +505,7 @@ export async function processRuntime(
           tx,
           conversation,
           updatedContact,
-          context.op.workflow.stageOnStart,
+          progress.crmStageId || context.op.workflow.stageOnStart,
           op,
         );
       let humanId = latest.handoffAckId;
@@ -471,7 +513,7 @@ export async function processRuntime(
         humanId = (
           await requestHuman(
             tx,
-            conversation,
+            (await tx.get("conversation", job.conversationId))!,
             result.handoff.reason,
             result.handoff.summary,
           )
@@ -485,6 +527,7 @@ export async function processRuntime(
         handoffAckId: humanId,
         savedHandoff: result.handoff,
         savedQualification: result.qualification,
+        toolTrace: result.trace,
       });
       return { conversation, executionId };
     });

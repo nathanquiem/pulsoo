@@ -23,6 +23,10 @@ import {
   isRecordJob,
 } from "./operation.js";
 import { requestHuman } from "./handoff.js";
+import {
+  notificationRoutes,
+  notificationConfigured,
+} from "./human-notification.js";
 import { testHistoryRoutes } from "./test-history.js";
 import { toolDescriptions } from "./workflow.js";
 import {
@@ -122,6 +126,8 @@ export function publicSafe<T>(value: T, c: Config): T {
     c.google.refreshToken,
     c.calKey,
     c.approvalWebhook,
+    c.humanNotification.url,
+    c.humanNotification.secret,
     c.databaseUrl ?? "",
     c.password,
     c.secret,
@@ -195,7 +201,9 @@ export async function buildApp(c: Config, store: Store) {
     const path = req.url.split("?")[0];
     if (
       !["GET", "HEAD"].includes(req.method) &&
-      path !== "/api/webhooks/central"
+      !["/api/webhooks/central", "/api/webhooks/human-notifications"].includes(
+        path,
+      )
     ) {
       const origin = req.headers.origin;
       if (origin) {
@@ -209,7 +217,12 @@ export async function buildApp(c: Config, store: Store) {
     }
     if (
       !path.startsWith("/api") ||
-      ["/api/login", "/api/session", "/api/webhooks/central"].includes(path)
+      [
+        "/api/login",
+        "/api/session",
+        "/api/webhooks/central",
+        "/api/webhooks/human-notifications",
+      ].includes(path)
     )
       return;
     if (c.demo) {
@@ -315,12 +328,14 @@ export async function buildApp(c: Config, store: Store) {
     return { ok: true };
   });
   testHistoryRoutes(app, store);
+  notificationRoutes(app, store, c);
   app.get("/api/bootstrap", async () =>
     publicSafe(
       await store.transaction(async (tx) => ({
         operation: await operation(tx),
         tools: toolDescriptions,
         centralExtensions: !!c.central.extendedApi,
+        notificationWebhookConfigured: notificationConfigured(c),
         archives: (await tx.list("testArchive")).map((a) => ({
           id: a.id,
           createdAt: a.createdAt,
@@ -516,6 +531,9 @@ export async function buildApp(c: Config, store: Store) {
           mode: z.enum(["simulation", "live"]),
           kind: z.enum(["reply", "followup"]).default("reply"),
           photoCount: z.number().int().min(0).max(10).default(0),
+          qualification: z
+            .record(z.string().max(40), z.string().max(500))
+            .default({}),
         })
         .strict()
         .parse(req.body);
@@ -526,6 +544,7 @@ export async function buildApp(c: Config, store: Store) {
         input.mode,
         input.kind,
         input.photoCount,
+        publicSafe(input.qualification, c),
       );
       return publicSafe(result, c);
     },
@@ -608,6 +627,7 @@ export async function buildApp(c: Config, store: Store) {
           phone: string(contactData.telefone) || old?.phone || "",
           notes: old?.notes ?? "",
           opportunityId: string(opportunity.id) || old?.opportunityId,
+          numberId: string(attendance.numero_whatsapp_id) || old?.numberId,
           stage: string(stage.id) || old?.stage || "Novo contato",
           conversationId: string(attendance.conversa_id) || old?.conversationId,
           automationAllowed:
@@ -717,7 +737,16 @@ export async function buildApp(c: Config, store: Store) {
           "habilite_o_encaminhamento_humano_para_este_fluxo",
           409,
         );
-      if(data.agentEnabled && data.workflow?.enabled && data.workflow.notification.kind!=="none" && !data.workflow.notification.targetId)throw new DomainError("configure_o_destino_da_equipe_antes_de_ativar",409);
+      if (
+        data.agentEnabled &&
+        data.workflow?.enabled &&
+        !["none", "webhook"].includes(data.workflow.notification.kind) &&
+        !data.workflow.notification.targetId
+      )
+        throw new DomainError(
+          "configure_o_destino_da_equipe_antes_de_ativar",
+          409,
+        );
       if (
         data.agentEnabled &&
         data.workflow?.enabled &&
@@ -728,6 +757,13 @@ export async function buildApp(c: Config, store: Store) {
           "avisos_de_grupo_exigem_atualizacao_da_central",
           409,
         );
+      if (
+        data.agentEnabled &&
+        data.workflow?.enabled &&
+        data.workflow.notification.kind === "webhook" &&
+        !notificationConfigured(c)
+      )
+        throw new DomainError("configure_webhook_de_aviso_e_segredo", 409);
       const old = await operation(tx),
         next = { ...old, ...data, revision: old.revision + 1 };
       await tx.put("operation", next);

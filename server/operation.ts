@@ -35,6 +35,44 @@ export const operationSchema = z
               .strict(),
           )
           .max(12),
+        steps: z
+          .array(
+            z
+              .object({
+                id: z.string().min(1).max(80),
+                title: z.string().min(1).max(100),
+                objective: z.string().min(1).max(500),
+                question: z.string().min(1).max(400),
+                instructions: z.string().max(1500),
+                fieldKeys: z.array(z.string()).max(12),
+                requirePhoto: z.boolean(),
+                crmStageId: z.string().max(100),
+              })
+              .strict(),
+          )
+          .max(12)
+          .optional(),
+        autoHandoff: z.boolean().optional(),
+        knowledge: z
+          .array(
+            z
+              .object({
+                id: z.string().min(1).max(80),
+                question: z.string().min(1).max(300),
+                answer: z.string().min(1).max(2000),
+              })
+              .strict(),
+          )
+          .max(30)
+          .optional(),
+        toolGuidance: z
+          .object({
+            responder_atendimento: z.string().max(2000).optional(),
+            consultar_informacoes: z.string().max(2000).optional(),
+            solicitar_humano: z.string().max(2000).optional(),
+          })
+          .strict()
+          .optional(),
         stageOnStart: z.string().max(100),
         stageOnHandoff: z.string().max(100),
         responsibleId: z.string().max(100),
@@ -44,7 +82,13 @@ export const operationSchema = z
         requirePhoto: z.boolean(),
         notification: z
           .object({
-            kind: z.enum(["none", "contact", "conversation", "group"]),
+            kind: z.enum([
+              "none",
+              "contact",
+              "conversation",
+              "group",
+              "webhook",
+            ]),
             targetId: z.string().max(200),
             numberId: z.string().max(100),
           })
@@ -110,6 +154,44 @@ export const operationSchema = z
       ctx.addIssue({
         code: "custom",
         message: "Campos de qualificação duplicados.",
+      });
+    if (o.workflow?.steps) {
+      const keys = new Set(o.workflow.fields.map((f) => f.key));
+      if (
+        new Set(o.workflow.steps.map((s) => s.id)).size !==
+          o.workflow.steps.length ||
+        o.workflow.steps.some(
+          (s) =>
+            (!s.fieldKeys.length && !s.requirePhoto) ||
+            new Set(s.fieldKeys).size !== s.fieldKeys.length ||
+            s.fieldKeys.some((k) => !keys.has(k)),
+        )
+      )
+        ctx.addIssue({
+          code: "custom",
+          message:
+            "Cada etapa exige uma condição válida e identificadores únicos.",
+        });
+    }
+    if (
+      o.workflow?.knowledge &&
+      new Set(o.workflow.knowledge.map((k) => k.id)).size !==
+        o.workflow.knowledge.length
+    )
+      ctx.addIssue({
+        code: "custom",
+        message: "Informações aprovadas duplicadas.",
+      });
+    if (
+      o.workflow?.autoHandoff &&
+      !o.workflow.requirePhoto &&
+      !o.workflow.fields.some((f) => f.required) &&
+      !o.workflow.steps?.length
+    )
+      ctx.addIssue({
+        code: "custom",
+        message:
+          "Conclusão automática exige ao menos uma condição de qualificação.",
       });
     if (o.modules.proposals && !o.modules.catalog)
       ctx.addIssue({ code: "custom", message: "Propostas exigem catálogo." });

@@ -26,6 +26,25 @@ export async function requestHuman(
       ? workflowSummary(contact, cv, op, reason, summary)
       : summary.slice(0, 1800),
     farewellState: "pending",
+    notificationData: contact
+      ? {
+          lead: {
+            id: contact.id,
+            name: contact.name,
+            phone: contact.phone,
+            conversationId: cv.id,
+            opportunityId: contact.opportunityId,
+            stage: contact.stage,
+          },
+          qualification: (op.workflow?.fields ?? []).map((f) => ({
+            key: f.key,
+            label: f.label,
+            value: (cv.qualification ?? contact.qualification)?.[f.key] ?? null,
+          })),
+          photosReceived: cv.photoCount ?? 0,
+          nextStep: op.workflow?.nextStep ?? "",
+        }
+      : undefined,
     notification: op.workflow?.notification
       ? {
           ...op.workflow.notification,

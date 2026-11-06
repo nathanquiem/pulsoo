@@ -180,6 +180,23 @@ export type Operation = Base & {
       question: string;
       required: boolean;
     }[];
+    steps?: {
+      id: string;
+      title: string;
+      objective: string;
+      question: string;
+      instructions: string;
+      fieldKeys: string[];
+      requirePhoto: boolean;
+      crmStageId: string;
+    }[];
+    autoHandoff?: boolean;
+    knowledge?: { id: string; question: string; answer: string }[];
+    toolGuidance?: {
+      responder_atendimento?: string;
+      consultar_informacoes?: string;
+      solicitar_humano?: string;
+    };
     stageOnStart: string;
     stageOnHandoff: string;
     responsibleId: string;
@@ -188,7 +205,7 @@ export type Operation = Base & {
     photoPolicy: "immediate" | "collect";
     requirePhoto: boolean;
     notification: {
-      kind: "none" | "contact" | "conversation" | "group";
+      kind: "none" | "contact" | "conversation" | "group" | "webhook";
       targetId: string;
       numberId: string;
     };
@@ -226,6 +243,13 @@ export type Conversation = Base & {
   handoffId?: string;
   photoCount?: number;
   typingSupported?: boolean;
+  qualification?: Record<string, string>;
+  flowState?: {
+    stepId?: string;
+    title?: string;
+    completedStepIds: string[];
+    policyRevision: number;
+  };
 };
 export type ConversationMessage = Base & {
   conversationId: string;
@@ -255,7 +279,8 @@ export type RuntimeJob = Base & {
     | "done"
     | "cancelled"
     | "blocked"
-    | "unknown";
+    | "unknown"
+    | "awaiting_confirmation";
   attempts: number;
   dueAt: string;
   cycle: number;
@@ -276,6 +301,7 @@ export type RuntimeJob = Base & {
     messageId?: string;
     sentAt?: string;
   }[];
+  toolTrace?: { name: string; detail: string }[];
   savedHandoff?: { reason: string; summary: string };
   savedQualification?: Record<string, string>;
 };
@@ -298,7 +324,23 @@ export type HumanHandoff = Base & {
   reason: string;
   summary: string;
   noteState: "pending" | "done" | "blocked" | "not_requested";
-  notificationState?: "pending" | "done" | "blocked" | "not_requested";
+  notificationState?:
+    "pending" | "done" | "blocked" | "not_requested" | "awaiting_confirmation";
+  notificationData?: {
+    lead: {
+      id: string;
+      name: string;
+      phone: string;
+      conversationId: string;
+      opportunityId?: string;
+      stage: string;
+    };
+    qualification: { key: string; label: string; value: string | null }[];
+    photosReceived: number;
+    nextStep: string;
+  };
+  notificationMessageId?: string;
+  notificationConfirmedAt?: string;
   notification?: NonNullable<Operation["workflow"]>["notification"];
   farewellState?: "pending" | "done" | "blocked";
   transferState?: "pending" | "done" | "blocked";

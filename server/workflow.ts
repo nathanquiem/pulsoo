@@ -25,7 +25,11 @@ export function workflowSummary(
       (f) =>
         short(f.label, 35) +
         ": " +
-        short(contact.qualification?.[f.key] || "Não informado", 90),
+        short(
+          (cv.qualification ?? contact.qualification)?.[f.key] ||
+            "Não informado",
+          90,
+        ),
     ),
     "Fotos recebidas: " + (cv.photoCount ?? 0),
     "Motivo do encaminhamento: " + short(reason, 160),
@@ -45,6 +49,17 @@ export async function queueStage(
   op: Operation,
 ) {
   if (!target || target === contact.stage) return;
+  const previous = (await tx.list("runtimeJob")).find(
+    (j) =>
+      j.kind === "record_stage" &&
+      j.conversationId === cv.id &&
+      j.stageTarget === target &&
+      j.opportunityId === contact.opportunityId &&
+      j.policyRevision === op.revision &&
+      (["pending", "running", "unknown"].includes(j.state) ||
+        j.lastError === "oportunidade_ou_etapa_nao_configurada"),
+  );
+  if (previous) return;
   const id = "stage:" + cv.id + ":" + cv.cycle + ":" + target;
   if (await tx.get("runtimeJob", id)) return;
   await tx.put("runtimeJob", {
@@ -85,32 +100,4 @@ export async function queueHumanNotification(
     executionId: h.id,
   });
 }
-export const toolDescriptions = [
-  {
-    id: "responder_atendimento",
-    name: "Qualificar e responder",
-    trigger: "Chamada do principal com dados estruturados e texto de resposta.",
-  },
-  {
-    id: "solicitar_humano",
-    name: "Encaminhar para humano",
-    trigger:
-      "Pedido do lead, dúvida fora do roteiro ou conclusão da qualificação.",
-  },
-  {
-    id: "mover_etapa",
-    name: "Mover etapa",
-    trigger:
-      "Início da qualificação ou passagem ao humano, conforme mapeamento.",
-  },
-  {
-    id: "registrar_resumo",
-    name: "Registrar resumo",
-    trigger: "Encaminhamento: nota com fatos, pendências e próximo passo.",
-  },
-  {
-    id: "avisar_humano",
-    name: "Avisar equipe",
-    trigger: "Após encaminhamento, para o destino cadastrado.",
-  },
-];
+export { toolDescriptions } from "./tool-catalog.js";

@@ -1,6 +1,6 @@
 # Pulsoo
 
-Aplicativo independente por cliente (0.3), com primeira instalação na VPS em homologação. Memória e fila no PostgreSQL da própria VPS; uma instalação e uma réplica por cliente. Implantação e integrações reais ainda em homologação.
+Aplicativo independente por cliente (0.4), com primeira instalação na VPS em homologação. Memória e fila no PostgreSQL da própria VPS; uma instalação e uma réplica por cliente. Implantação e integrações reais ainda em homologação.
 
 ## Operação enxuta
 
@@ -99,3 +99,9 @@ O repositório é público. Nenhuma licença de código aberto foi concedida ao 
 ## Roteiro orientado por etapas
 
 Agente > Atendimento inclui modelo copiável com objetivos, perguntas, ramificações, ferramentas e condições de avanço. [Como configurar](docs/ROTEIRO-POR-ETAPAS.md). O roteiro conversacional não altera automaticamente IDs de etapas do CRM. Campos obrigatórios/foto são validados pelo backend antes da conclusão; regras arbitrárias do prompt continuam orientações ao modelo.
+
+## Motor 0.4
+
+Fluxo e ferramentas agora permite etapas com condições, informações aprovadas para dúvidas e orientações das ferramentas. O motor mantém a pendência, consulta dados aprovados e valida a conclusão. [Revisão e referências](docs/REVISAO-MOTOR-0.4.md). [Aviso por webhook n8n](docs/AVISO-N8N.md), independente da API de grupos da Central; HTTP 202 aguarda confirmação. [Contexto mínimo da Central](docs/PROMPT-CENTRAL-CONTEXTO.md).
+
+Com base de informações cadastrada, o principal pode fazer até duas consultas locais, além do limite de especialistas. Cada consulta exige continuação do modelo; há um limite total de rodadas (delegações permitidas + duas consultas + resposta final). Não são chamadas sem custo; saudações e coleta simples normalmente usam uma chamada. Especialistas não devem ser ativados sem uma função necessária.

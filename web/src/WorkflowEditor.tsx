@@ -1,4 +1,5 @@
 import React from "react";
+import { FlowDesign } from "./FlowDesign";
 import type { Operation, AgentSettings } from "../../shared/model";
 type Save<T> = (value: T) => Promise<boolean>;
 export function RhythmEditor({
@@ -158,11 +159,22 @@ export function WorkflowEditor({
   save,
   tools,
   centralExtensions = false,
+  notificationWebhookConfigured = false,
 }: {
   centralExtensions?: boolean;
+  notificationWebhookConfigured?: boolean;
   operation: Operation;
   save: Save<Operation>;
-  tools: { id: string; name: string; trigger: string }[];
+  tools: {
+    id: string;
+    name: string;
+    trigger: string;
+    kind?: string;
+    objective?: string;
+    inputs?: string;
+    output?: string;
+    avoid?: string;
+  }[];
 }) {
   const fallback: NonNullable<Operation["workflow"]> = {
     enabled: false,
@@ -193,16 +205,26 @@ export function WorkflowEditor({
   const available = (id: string) =>
     id === "responder_atendimento"
       ? committed.enabled
-      : id === "solicitar_humano"
-        ? !!operation.handoff?.enabled
-        : id === "mover_etapa"
-          ? committed.enabled &&
-            !!(committed.stageOnStart || committed.stageOnHandoff)
-          : id === "registrar_resumo"
-            ? !!operation.handoff?.recordNote
-            : committed.notification.kind !== "none" &&
-              (committed.notification.kind !== "group" || centralExtensions) &&
-              !!committed.notification.targetId;
+      : id === "consultar_informacoes"
+        ? !!committed.knowledge?.length
+        : id === "solicitar_humano"
+          ? !!operation.handoff?.enabled
+          : id === "mover_etapa"
+            ? committed.enabled &&
+              !!(
+                committed.stageOnStart ||
+                committed.stageOnHandoff ||
+                committed.steps?.some((step) => step.crmStageId)
+              )
+            : id === "registrar_resumo"
+              ? !!operation.handoff?.recordNote
+              : committed.notification.kind !== "none" &&
+                (committed.notification.kind !== "group" ||
+                  centralExtensions) &&
+                (committed.notification.kind !== "webhook" ||
+                  notificationWebhookConfigured) &&
+                (committed.notification.kind === "webhook" ||
+                  !!committed.notification.targetId);
   return (
     <>
       <section className="panel">
@@ -211,20 +233,37 @@ export function WorkflowEditor({
         </div>
         <div className="form-body">
           {tools.map((tool) => (
-            <div className="connection-row" key={tool.id}>
-              <span>
-                <b>{tool.name}</b>
-                <small>{tool.trigger}</small>
-              </span>
-              <span className="tag">
+            <details className="panel form-body" key={tool.id}>
+              <summary>
+                {tool.name} ·{" "}
                 {available(tool.id)
-                  ? "Configurada"
-                  : tool.id === "avisar_humano" &&
-                      committed.notification.kind === "group"
-                    ? "Exige API da Central"
-                    : "A configurar"}
-              </span>
-            </div>
+                  ? "Configuração preenchida"
+                  : "A configurar"}
+              </summary>
+              <p>
+                <b>Tipo:</b>{" "}
+                {tool.kind === "action"
+                  ? "Ação do backend"
+                  : tool.kind === "read"
+                    ? "Consulta do agente"
+                    : "Decisão do agente"}
+              </p>
+              <p>
+                <b>Objetivo:</b> {tool.objective}
+              </p>
+              <p>
+                <b>Quando usar:</b> {tool.trigger}
+              </p>
+              <p>
+                <b>Entradas e fontes:</b> {tool.inputs}
+              </p>
+              <p>
+                <b>Resultado:</b> {tool.output}
+              </p>
+              <p>
+                <b>Limites:</b> {tool.avoid}
+              </p>
+            </details>
           ))}
         </div>
       </section>
@@ -326,8 +365,17 @@ export function WorkflowEditor({
           >
             Adicionar informação
           </button>
+          <FlowDesign
+            flow={flow}
+            change={(next) => {
+              flowDirty.current = true;
+              setFlow(next);
+            }}
+          />
           <h3>Etapas e responsável</h3>
           <p className="muted">
+            Sem oportunidade vinculada, mover etapa será bloqueado. Vincule em
+            Conversas → Contexto e notas ou use a API complementar da Central.
             Copie os IDs da Central. Deixe a etapa vazia para manter o funil
             como está. A oportunidade pode vir no webhook ou ser vinculada no
             contexto da conversa.
@@ -409,6 +457,7 @@ export function WorkflowEditor({
               <option value="conversation">
                 Conversa da equipe na Central
               </option>
+              <option value="webhook">Webhook de aviso (n8n)</option>
               <option value="group">
                 Grupo WhatsApp (aguarda API da Central)
               </option>
@@ -417,9 +466,11 @@ export function WorkflowEditor({
           {flow.notification.kind !== "none" && (
             <>
               <label>
-                {flow.notification.kind === "group"
-                  ? "ID do grupo (@g.us)"
-                  : "ID do contato ou conversa de destino"}
+                {flow.notification.kind === "webhook"
+                  ? "Identificador do destino no n8n (opcional)"
+                  : flow.notification.kind === "group"
+                    ? "ID do grupo (@g.us)"
+                    : "ID do contato ou conversa de destino"}
                 <input
                   value={flow.notification.targetId}
                   onChange={(e) =>
@@ -444,11 +495,20 @@ export function WorkflowEditor({
               </label>
             </>
           )}
+          {flow.notification.kind === "webhook" && (
+            <p className="muted">
+              {notificationWebhookConfigured
+                ? "Webhook e segredo configurados no servidor."
+                : "Configure HUMAN_NOTIFICATION_WEBHOOK_URL e HUMAN_NOTIFICATION_WEBHOOK_SECRET no servidor."}{" "}
+              O n8n recebe dados estruturados e confirma o envio por retorno
+              assinado. HTTP 202 fica aguardando confirmação; não representa
+              mensagem enviada. O destino pode ser resolvido no próprio n8n.
+            </p>
+          )}
           <p className="muted">
             O aviso inclui nome, telefone, informações coletadas, pendências e
-            próximo passo. Grupos, busca de contexto e “digitando” precisam do
-            contrato público complementar da Central; o painel não simula
-            sucesso.
+            próximo passo. Envio de grupo diretamente pela Central exige o
+            contrato complementar. O webhook do n8n é independente dele.
           </p>
         </div>
         <div className="panel-foot">

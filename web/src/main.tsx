@@ -67,7 +67,17 @@ type Data = {
   usage: Usage[];
   audit: Audit[];
   centralExtensions?: boolean;
-  tools?: { id: string; name: string; trigger: string }[];
+  notificationWebhookConfigured?: boolean;
+  tools?: {
+    id: string;
+    name: string;
+    trigger: string;
+    kind?: string;
+    objective?: string;
+    inputs?: string;
+    output?: string;
+    avoid?: string;
+  }[];
   archives?: {
     id: string;
     createdAt: string;
@@ -786,7 +796,7 @@ function App() {
           )}
           <footer className="footer">
             <span>Pulsoo / sua operação, em movimento.</span>
-            <span>Base em evolução · v0.3</span>
+            <span>Base em evolução · v0.4</span>
           </footer>
         </div>
       </main>
@@ -1194,6 +1204,7 @@ function AgentEditor({
         <WorkflowEditor
           operation={data.operation}
           tools={data.tools ?? []}
+          notificationWebhookConfigured={!!data.notificationWebhookConfigured}
           centralExtensions={!!data.centralExtensions}
           save={(value) =>
             act(() => api("/operation", operationBody(value), "PUT"))
@@ -1677,11 +1688,13 @@ function Conversations({
                           ·{" "}
                           {j.state === "done"
                             ? "Confirmada"
-                            : j.state === "pending" || j.state === "running"
-                              ? "Pendente"
-                              : j.state === "unknown"
-                                ? "Resultado incerto; conferir antes de repetir"
-                                : "Bloqueada"}
+                            : j.state === "awaiting_confirmation"
+                              ? "Aguardando confirmação de envio"
+                              : j.state === "pending" || j.state === "running"
+                                ? "Pendente"
+                                : j.state === "unknown"
+                                  ? "Resultado incerto; conferir antes de repetir"
+                                  : "Bloqueada"}
                           {j.lastError
                             ? " · " + j.lastError.replaceAll("_", " ")
                             : ""}
@@ -1689,6 +1702,29 @@ function Conversations({
                       ))}
                   </section>
                 )}
+                {cv.flowState?.title && (
+                  <p className="muted">
+                    Etapa do roteiro: {cv.flowState.title} ·{" "}
+                    {cv.flowState.completedStepIds.length} concluída(s)
+                  </p>
+                )}
+                <details>
+                  <summary>Decisões do agente e consultas</summary>
+                  {data.runtimeJobs
+                    .filter(
+                      (j) => j.conversationId === cv.id && j.toolTrace?.length,
+                    )
+                    .slice(-6)
+                    .map((j) => (
+                      <section key={j.id}>
+                        {j.toolTrace?.map((t, i) => (
+                          <p key={i}>
+                            <b>{t.name}</b> · {t.detail}
+                          </p>
+                        ))}
+                      </section>
+                    ))}
+                </details>
                 <div className="conversation-controls">
                   <button
                     disabled={busy}
@@ -1811,6 +1847,9 @@ function Lab({
     [kind, setKind] = React.useState("reply"),
     [photo, setPhoto] = React.useState(false),
     [summaryPreview, setSummaryPreview] = React.useState(""),
+    [qualification, setQualification] = React.useState<Record<string, string>>(
+      {},
+    ),
     [waiting, setWaiting] = React.useState(false),
     [trace, setTrace] = React.useState<{ name: string; detail: string }[]>([]),
     [error, setError] = React.useState("");
@@ -1831,13 +1870,16 @@ function Lab({
         parts: string[];
         trace: typeof trace;
         summaryPreview?: string;
+        qualification?: Record<string, string>;
       }>("/lab/chat", {
         messages: next.map(({ role, content }) => ({ role, content })),
         mode,
         kind,
         photoCount: photo ? 1 : 0,
+        qualification,
       });
       setTrace(r.trace);
+      setQualification(r.qualification ?? {});
       setSummaryPreview(r.summaryPreview ?? "");
       if (r.text)
         setMessages([
@@ -1872,6 +1914,7 @@ function Lab({
               setMessages([]);
               setTrace([]);
               setSummaryPreview("");
+              setQualification({});
               setPhoto(false);
             }}
           >

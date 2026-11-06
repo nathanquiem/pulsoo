@@ -2,6 +2,7 @@ import type { Store } from "./store.js";
 import type { Config } from "./config.js";
 import type { RuntimeJob, HumanHandoff } from "../shared/model.js";
 import { IntegrationError } from "./integrations/http.js";
+import { sendHumanNotification } from "./human-notification.js";
 import { operation } from "./operation.js";
 export async function processAction(
   store: Store,
@@ -57,24 +58,54 @@ export async function processAction(
           tx.put("handoff", { ...h, transferState: "done" }),
         );
       } else {
-        if (!c.demo) {
+        const receipt =
+          h.notification?.kind === "webhook" && !c.demo
+            ? await sendHumanNotification(h, c)
+            : undefined;
+        if (!c.demo && h.notification?.kind !== "webhook") {
           if (!sender.notifyHuman)
             throw new IntegrationError("aviso_humano_indisponivel");
           await sender.notifyHuman(h);
         }
-        await store.transaction((tx) =>
-          tx.put("handoff", { ...h, notificationState: "done" }),
-        );
+        await store.transaction(async (tx) => {
+          const fresh = (await tx.get("handoff", h.id))!;
+          if (fresh.notificationConfirmedAt) return;
+          const waiting = receipt?.status === "pending";
+          await tx.put("handoff", {
+            ...fresh,
+            notificationState: waiting ? "awaiting_confirmation" : "done",
+            notificationMessageId: receipt?.messageId,
+            notificationConfirmedAt: waiting
+              ? undefined
+              : new Date().toISOString(),
+          });
+          await tx.put("runtimeJob", {
+            ...job,
+            state: waiting ? "awaiting_confirmation" : "done",
+          });
+        });
+        return;
       }
     }
-    await store.transaction((tx) =>
-      tx.put("runtimeJob", { ...job, state: "done" }),
-    );
+    await store.transaction(async (tx) => {
+      const h =
+        job.kind === "notify_human"
+          ? await tx.get("handoff", job.executionId ?? "")
+          : undefined;
+      if (h?.notificationConfirmedAt && h.notificationState === "blocked")
+        return;
+      await tx.put("runtimeJob", { ...job, state: "done" });
+    });
   } catch (error) {
     const uncertain = error instanceof IntegrationError && error.uncertain;
     const reason =
       error instanceof IntegrationError ? error.code : "falha_na_ferramenta";
     await store.transaction(async (tx) => {
+      const confirmed =
+        job.kind === "notify_human"
+          ? await tx.get("handoff", job.executionId ?? "")
+          : undefined;
+      if (confirmed?.notificationConfirmedAt) return;
       await tx.put("runtimeJob", {
         ...job,
         state: uncertain ? "unknown" : "blocked",

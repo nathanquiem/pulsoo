@@ -73,6 +73,10 @@ export function readConfig(env: NodeJS.ProcessEnv = process.env) {
     calKey: env.CALCOM_API_KEY ?? "",
     calSlotsVersion: env.CALCOM_API_VERSION_SLOTS ?? "2024-09-04",
     calBookingsVersion: env.CALCOM_API_VERSION_BOOKINGS ?? "2024-08-13",
+    humanNotification: {
+      url: env.HUMAN_NOTIFICATION_WEBHOOK_URL ?? "",
+      secret: env.HUMAN_NOTIFICATION_WEBHOOK_SECRET ?? "",
+    },
     approvalWebhook: env.APPROVAL_WEBHOOK_URL ?? "",
     followupResponsibleId: env.CENTRAL_FOLLOWUP_RESPONSAVEL_ID ?? "",
     channelMode: (["evolution", "official"].includes(
