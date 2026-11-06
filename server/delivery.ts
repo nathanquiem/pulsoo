@@ -21,6 +21,19 @@ export function deliveryParts(text: string, settings: AgentSettings) {
     }
     if (remaining) parts.push(remaining);
   }
+  if (settings.naturalParagraphs) {
+    const shortAck =
+      /^(entendi|perfeito|claro|certo|ótimo|combinado|pode sim|obrigad[oa]|sim|beleza|ok)[!.…]*(?:\s+\p{Extended_Pictographic}\uFE0F?)?$/iu;
+    for (let i = 0; i < parts.length - 1; i++) {
+      if (
+        shortAck.test(parts[i]) &&
+        !/^(?:[-•]|\d+\.)\s/.test(parts[i + 1]) &&
+        parts[i].length + 1 + parts[i + 1].length <= limit
+      ) {
+        parts.splice(i, 2, parts[i] + " " + parts[i + 1]);
+      }
+    }
+  }
   if (parts.length > settings.maxChunks)
     throw new DomainError("resposta_excede_maximo_de_mensagens", 409);
   return parts;

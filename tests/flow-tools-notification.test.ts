@@ -15,6 +15,7 @@ import {
 } from "../server/human-notification.js";
 import { HttpClient } from "../server/integrations/http.js";
 import { recoverRuntimeJobs } from "../server/runtime.js";
+import { deliveryParts } from "../server/delivery.js";
 import type { Operation, HumanHandoff, RuntimeJob } from "../shared/model.js";
 function opFixture(): Operation {
   return {
@@ -591,5 +592,27 @@ test("reinício não repete ação externa em andamento nem aviso aguardando cal
   assert.equal(
     (await store.transaction((tx) => tx.get("runtimeJob", job.id)))!.state,
     "awaiting_confirmation",
+  );
+});
+
+test("parágrafos naturais não isolam uma confirmação curta em outro balão", () => {
+  const settings = {
+    ...base("agent"),
+    name: "Assistente",
+    tone: "Natural",
+    instructions: "",
+    splitMode: "paragraphs" as const,
+    maxChunks: 2,
+    delayMs: 0,
+    voiceMode: "text" as const,
+    maxCharsPerMessage: 200,
+    naturalParagraphs: true,
+  };
+  assert.deepEqual(
+    deliveryParts(
+      "Entendi! A prioridade é proteger seus filhos.\n\nEm qual bairro seria?",
+      settings,
+    ),
+    ["Entendi! A prioridade é proteger seus filhos.", "Em qual bairro seria?"],
   );
 });

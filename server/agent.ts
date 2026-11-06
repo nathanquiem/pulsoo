@@ -635,10 +635,15 @@ export async function generateAgent(
             .object({ pergunta: z.string().trim().min(1).max(1000) })
             .strict()
             .parse(JSON.parse(call.arguments));
-          output = lookupInformation(op, args.pergunta);
+          const approved = lookupInformation(op, args.pergunta);
+          output = approved;
           trace.push({
             name: "consultar_informacoes",
-            detail: JSON.stringify(output),
+            detail: approved.found
+              ? "Base aprovada consultada: " +
+                approved.entries.map((entry) => entry.question).join("; ") +
+                ". Retomar a etapa pendente."
+              : "Nenhuma resposta aprovada encontrada para esta dúvida.",
           });
         }
         if (call.name === "consultar_especialista" && canConsult) {

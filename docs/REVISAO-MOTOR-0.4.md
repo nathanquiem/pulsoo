@@ -21,3 +21,5 @@ A etapa do CRM tinha IDs de destino preenchidos, mas não havia ID da oportunida
 
 ## Limites de homologação
 Os testes automatizados usam transportes simulados. A publicação, verificação visual e resultados de laboratório real são registrados após executados em ENTREGA-0.2.md. A Central não foi modificada por esta revisão. Mudar etapa ainda exige oportunidade vinculada, permissão e contrato válido. Aviso n8n depende da URL, segredo e workflow com envio/recibo real. Nenhum contrato preparado equivale a integração homologada.
+
+A primeira verificação com IA real repetiu a dúvida de cobertura com foto simulada: chamou consultar_informacoes, respondeu com a base aprovada e retomou a etapa de localização. A captura está registrada nas evidências da sessão. Ajuste posterior combina confirmações curtas com a frase seguinte quando cabem no mesmo balão e descreve o resultado da consulta sem despejar JSON no painel.
