@@ -58,8 +58,8 @@ export function integrations(c: Config): IntegrationStatus[] {
       "Voz e síntese para testar o jeito de falar.",
       "Voz",
       !!(c.elevenKey && c.voiceId),
-      ["Prévia de voz", "Modelo de voz"],
-      "Prévia de voz disponível. Síntese e envio automático como voz ainda não conectados ao motor.",
+      ["Prévia de voz", "Resposta de voz no WhatsApp"],
+      "A voz do servidor é usada nas respostas por áudio. Configure o formato em Agente → Ritmo e mensagens.",
     ),
     item(
       "assemblyai",

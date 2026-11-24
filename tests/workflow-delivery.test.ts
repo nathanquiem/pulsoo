@@ -986,3 +986,67 @@ test("retenta a leitura temporária do áudio e consulta a mesma transcrição s
   assert.deepEqual([reads, submits, polls], [2, 1, 2]);
   assert.ok(f.sends.length > 0);
 });
+
+test("um áudio recebe uma nota de voz Ogg pela Central sem mensagem adicional", async () => {
+  const f = await fixture();
+  f.advance(1000);
+  await f.inbound("teste de voz", "audio");
+  const job = await f.store.transaction(async (tx) => {
+    const j = (await tx.list("runtimeJob")).find((j) => j.state === "pending")!;
+    await tx.put("runtimeJob", { ...j, state: "dispatching" });
+    return j;
+  });
+  const calls: string[] = [];
+  const bytes = Buffer.concat([
+    Buffer.from("OggS"),
+    Buffer.alloc(24),
+    Buffer.from("OpusHead"),
+  ]);
+  const { MediaClient } = await import("../server/integrations/media.js");
+  const voice = new MediaClient(
+    { eleven: "teste", assembly: "" },
+    new HttpClient(async (url) => {
+      assert.match(String(url), /output_format=opus_48000_32/);
+      calls.push("sintese");
+      return new Response(bytes);
+    }),
+  );
+  const sender = new CentralClient(
+    { ...f.config.central, key: "teste", baseUrl: "https://central.example" },
+    new HttpClient(async (_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      assert.deepEqual(body, {
+        tipo: "audio",
+        arquivo: {
+          nome: "resposta.ogg",
+          mime: "audio/ogg",
+          base64: bytes.toString("base64"),
+        },
+      });
+      calls.push("voz");
+      return Response.json({ mensagem: { id: "enviada", status: "enviada" } });
+    }),
+  );
+  const { deliverTurn } = await import("../server/turn-delivery.js");
+  const run = () =>
+    deliverTurn(
+      f.store,
+      { ...f.config, demo: false, voiceId: "teste" },
+      job,
+      "Olá!\n\nTudo bem?",
+      { ...f.settings, voiceMode: "adaptive" },
+      sender,
+      f.deps.now,
+      f.deps.pause,
+      voice,
+    );
+  await run();
+  await run();
+  assert.deepEqual(calls, ["sintese", "voz"]);
+  assert.equal(
+    (await f.store.transaction((tx) => tx.list("message"))).filter(
+      (m) => m.role === "assistant" && m.messageType === "audio",
+    ).length,
+    1,
+  );
+});

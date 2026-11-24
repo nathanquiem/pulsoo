@@ -68,6 +68,22 @@ export function RhythmEditor({
         </div>
       </div>
       <div className="form-body">
+        <label>
+          Responder por
+          <select
+            value={value.voiceMode}
+            onChange={(e) =>
+              change({
+                ...value,
+                voiceMode: e.target.value as AgentSettings["voiceMode"],
+              })
+            }
+          >
+            <option value="text">Texto</option>
+            <option value="adaptive">Voz quando o contato enviar áudio</option>
+            <option value="audio">Sempre por voz</option>
+          </select>
+        </label>
         {number(
           "Esperar novas mensagens do lead (segundos)",
           "groupingMs",

@@ -63,6 +63,13 @@ export function externalId(id: string) {
 }
 
 const safeProviderCodes = new Set([
+  "quota_exceeded",
+  "missing_permissions",
+  "invalid_api_key",
+  "voice_not_found",
+  "payment_required",
+  "detected_unusual_activity",
+  "paid_plan_required",
   "nota_limite_excedido",
   "nota_conflitante",
   "nota_invalida",
@@ -96,7 +103,8 @@ async function providerErrorCode(
       chunks.push(value);
     }
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    return safeProviderCodes.has(body?.erro) ? body.erro : undefined;
+    const code = body?.erro ?? body?.detail?.status;
+    return safeProviderCodes.has(code) ? code : undefined;
   } catch {
     return;
   } finally {

@@ -36,6 +36,7 @@ import {
 } from "./followup.js";
 import { runLab } from "./lab.js";
 import { proposalPdf } from "./pdf.js";
+import { IntegrationError } from "./integrations/http.js";
 import { MediaClient } from "./integrations/media.js";
 declare module "fastify" {
   interface FastifyRequest {
@@ -563,6 +564,94 @@ export async function buildApp(c: Config, store: Store) {
         publicSafe(input.qualification, c),
       );
       return publicSafe(result, c);
+    },
+  );
+  app.post(
+    "/api/lab/voice-check",
+    { config: { rateLimit: { max: 2, timeWindow: "5 minutes" } } },
+    async () => {
+      if (c.demo) throw new DomainError("teste_de_voz_exige_modo_real", 409);
+      const media = new MediaClient({
+        eleven: c.elevenKey,
+        assembly: c.assemblyKey,
+      });
+      const phrase = "Olá, esta é uma mensagem de teste.";
+      let provider = "ElevenLabs";
+      try {
+        const bytes = await media.synthesize(
+          phrase,
+          c.voiceId,
+          "eleven_multilingual_v2",
+          true,
+        );
+        await store.transaction((tx) =>
+          tx.put("usage", {
+            ...base(),
+            provider,
+            model: "eleven_multilingual_v2",
+            task: "teste de voz",
+            environment: "lab",
+            inputTokens: 0,
+            outputTokens: 0,
+            characters: phrase.length,
+            estimatedCostMicros: null,
+            currency: "USD",
+            status: "success",
+          }),
+        );
+        provider = "AssemblyAI";
+        const submission = await media.transcribe(bytes);
+        for (let poll = 0; poll < 12; poll++) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          const result = await media.transcript(submission.id);
+          if (
+            result.status === "completed" &&
+            /teste/i.test(result.text ?? "")
+          ) {
+            await store.transaction((tx) =>
+              tx.put("usage", {
+                ...base(),
+                provider,
+                model: "universal-2",
+                task: "teste de transcrição",
+                environment: "lab",
+                inputTokens: 0,
+                outputTokens: 0,
+                audioSeconds: result.audio_duration ?? undefined,
+                estimatedCostMicros: null,
+                currency: "USD",
+                status: "success",
+              }),
+            );
+            return {
+              message: "Voz ElevenLabs gerada e reconhecida pela AssemblyAI.",
+            };
+          }
+          if (result.status !== "processing" && result.status !== "queued")
+            throw new IntegrationError("frase_de_teste_nao_reconhecida");
+        }
+        return {
+          message:
+            "Voz ElevenLabs gerada. A AssemblyAI aceitou o áudio e ainda está processando.",
+        };
+      } catch (error) {
+        const code =
+          error instanceof IntegrationError
+            ? error.code
+            : "falha_de_comunicacao";
+        const status =
+          error instanceof IntegrationError && error.httpStatus
+            ? " (HTTP " + error.httpStatus + ")"
+            : "";
+        return {
+          message:
+            (provider === "AssemblyAI" ? "Voz ElevenLabs gerada. " : "") +
+            provider +
+            ": " +
+            code.replaceAll("_", " ") +
+            status,
+        };
+      }
     },
   );
   app.post(

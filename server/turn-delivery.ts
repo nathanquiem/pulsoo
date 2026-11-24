@@ -1,3 +1,6 @@
+import { MediaClient } from "./integrations/media.js";
+import type { CentralClient } from "./integrations/central.js";
+import { base } from "./domain.js";
 import type { Config } from "./config.js";
 import type { Store } from "./store.js";
 import type { RuntimeJob, AgentSettings } from "../shared/model.js";
@@ -11,6 +14,7 @@ export async function deliverTurn(
   text: string,
   settings: AgentSettings,
   sender: {
+    sendVoice?: CentralClient["sendVoice"];
     setTyping?: (id: string, duration: number) => Promise<boolean>;
     sendText: (
       conversation: string,
@@ -20,16 +24,42 @@ export async function deliverTurn(
   },
   now: () => Date,
   pause = (ms: number) => new Promise<void>((r) => setTimeout(r, ms)),
+  voice = new MediaClient({ eleven: c.elevenKey, assembly: "" }),
 ) {
   let parts = job.deliveryParts;
   if (!parts) {
-    parts = deliveryParts(text, settings).map((text) => ({
-      text,
-      state: "pending" as const,
-    }));
-    await store.transaction(async (tx) => {
+    parts = await store.transaction(async (tx) => {
       const latest = await tx.get("runtimeJob", job.id);
-      await tx.put("runtimeJob", { ...(latest ?? job), deliveryParts: parts });
+      if (latest?.deliveryParts) return latest.deliveryParts;
+      let useVoice = !c.demo && settings.voiceMode === "audio";
+      if (
+        !c.demo &&
+        settings.voiceMode === "adaptive" &&
+        job.kind === "reply"
+      ) {
+        const inbound = (await tx.list("message"))
+          .filter(
+            (m) => m.role === "user" && m.conversationId === job.conversationId,
+          )
+          .sort(
+            (a, b) =>
+              b.occurredAt.localeCompare(a.occurredAt) ||
+              b.createdAt.localeCompare(a.createdAt),
+          )[0];
+        useVoice = inbound?.messageType === "audio";
+      }
+      const deliveryPartsForTurn: NonNullable<RuntimeJob["deliveryParts"]> =
+        useVoice
+          ? [{ text, state: "pending", format: "voice" }]
+          : deliveryParts(text, settings).map((text) => ({
+              text,
+              state: "pending",
+            }));
+      await tx.put("runtimeJob", {
+        ...(latest ?? job),
+        deliveryParts: deliveryPartsForTurn,
+      });
+      return deliveryPartsForTurn;
     });
   }
   let lastId = "",
@@ -102,46 +132,93 @@ export async function deliverTurn(
     }
     if (!c.demo && waitMs > 0) await pause(waitMs);
 
-    const allowed = await store.transaction(async (tx) => {
-      const latest = await tx.get("runtimeJob", job.id),
-        cv = await tx.get("conversation", job.conversationId),
-        contact = await tx.get("contact", job.contactId),
-        op = await operation(tx);
-      const ack =
-        !!latest?.handoffAckId &&
-        cv?.handoffId === latest.handoffAckId &&
-        cv?.status === "paused" &&
-        cv.manualState === "paused";
-      if (
-        latest?.state !== "dispatching" ||
-        !cv ||
-        (!ack && (cv.cycle !== job.cycle || cv.status !== "active")) ||
-        cv.deliveryUnknown ||
-        !contact?.automationAllowed ||
-        !testContactAllowed(op, contact) ||
-        op.revision !== job.policyRevision ||
-        (!op.agentEnabled && !(c.demo && job.demoOnly))
-      ) {
-        if (latest)
-          await tx.put("runtimeJob", {
-            ...latest,
-            state: "cancelled",
-            lastError: "estado_alterado_entre_mensagens",
-          });
-        return false;
+    const checkDelivery = (synthesizing: boolean) =>
+      store.transaction(async (tx) => {
+        const latest = await tx.get("runtimeJob", job.id),
+          cv = await tx.get("conversation", job.conversationId),
+          contact = await tx.get("contact", job.contactId),
+          op = await operation(tx);
+        const ack =
+          !!latest?.handoffAckId &&
+          cv?.handoffId === latest.handoffAckId &&
+          cv?.status === "paused" &&
+          cv.manualState === "paused";
+        if (
+          latest?.state !== "dispatching" ||
+          !cv ||
+          (!ack && (cv.cycle !== job.cycle || cv.status !== "active")) ||
+          cv.deliveryUnknown ||
+          !contact?.automationAllowed ||
+          !testContactAllowed(op, contact) ||
+          op.revision !== job.policyRevision ||
+          (!op.agentEnabled && !(c.demo && job.demoOnly))
+        ) {
+          if (latest)
+            await tx.put("runtimeJob", {
+              ...latest,
+              state: "cancelled",
+              lastError: "estado_alterado_entre_mensagens",
+            });
+          return false;
+        }
+        parts![i] = synthesizing
+          ? { ...parts![i], synthesisStarted: true }
+          : { ...parts![i], state: "sending" };
+        await tx.put("runtimeJob", { ...latest, deliveryParts: parts });
+        return true;
+      });
+    let bytes: Buffer | undefined;
+    if (parts[i].format === "voice") {
+      const interrupted = parts[i].synthesisStarted;
+      if (!(await checkDelivery(true)))
+        return { cancelled: true, lastId, sentAt };
+      try {
+        if (interrupted) throw new IntegrationError("sintese_interrompida");
+        if (!sender.sendVoice)
+          throw new IntegrationError("envio_de_voz_indisponivel");
+        bytes = await voice.synthesize(
+          parts[i].text,
+          c.voiceId,
+          "eleven_multilingual_v2",
+          true,
+        );
+      } catch (error) {
+        const code =
+          error instanceof IntegrationError ? error.code : "falha_na_sintese";
+        parts[i] = { ...parts[i], format: "text", voiceError: code };
       }
-      parts![i] = { ...parts![i], state: "sending" };
-      await tx.put("runtimeJob", { ...latest, deliveryParts: parts });
-      return true;
-    });
+      if (!interrupted)
+        await store.transaction((tx) =>
+          tx.put("usage", {
+            ...base(),
+            provider: "ElevenLabs",
+            model: "eleven_multilingual_v2",
+            task: "resposta de voz",
+            environment: "production",
+            inputTokens: 0,
+            outputTokens: 0,
+            characters: parts![i].text.length,
+            estimatedCostMicros: null,
+            currency: "USD",
+            status: bytes ? "success" : "failed",
+          }),
+        );
+    }
+    const allowed = await checkDelivery(false);
     if (!allowed) return { cancelled: true, lastId, sentAt };
     const sent = c.demo
       ? { mensagem: { id: "simulated:" + job.id + ":" + i, status: "enviada" } }
-      : await sender.sendText(
-          job.conversationId,
-          parts[i].text,
-          "pulsoo:part:" + job.id + ":" + i,
-        );
+      : bytes
+        ? await sender.sendVoice!(
+            job.conversationId,
+            bytes,
+            "pulsoo:part:" + job.id + ":" + i,
+          )
+        : await sender.sendText(
+            job.conversationId,
+            parts[i].text,
+            "pulsoo:part:" + job.id + ":" + i,
+          );
     lastId = sent.mensagem.id;
     sentAt = now().toISOString();
     parts[i] = { ...parts[i], state: "sent", messageId: lastId, sentAt };
@@ -154,6 +231,7 @@ export async function deliverTurn(
         createdAt: sentAt,
         conversationId: job.conversationId,
         role: "assistant",
+        messageType: bytes ? "audio" : "texto",
         text: parts![i].text,
         occurredAt: sentAt,
         source: job.kind === "followup" ? "followup" : "reply",

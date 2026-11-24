@@ -8,13 +8,16 @@ export class MediaClient {
     text: string,
     voiceId: string,
     model = "eleven_multilingual_v2",
+    voiceNote = false,
   ) {
     if (!this.keys.eleven)
       throw new IntegrationError("elevenlabs_nao_configurada");
     if (!/^[\w-]+$/.test(voiceId) || !text.trim() || text.length > 4000)
       throw new IntegrationError("voz_ou_texto_invalido");
     const response = await this.http.response(
-      "https://api.elevenlabs.io/v1/text-to-speech/" + voiceId,
+      "https://api.elevenlabs.io/v1/text-to-speech/" +
+        voiceId +
+        (voiceNote ? "?output_format=opus_48000_32" : ""),
       {
         method: "POST",
         headers: {
@@ -24,7 +27,16 @@ export class MediaClient {
         body: jsonBody({ text, model_id: model }),
       },
     );
-    return Buffer.from(await response.arrayBuffer());
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (
+      !bytes.length ||
+      bytes.length > 16 * 1024 * 1024 ||
+      (voiceNote &&
+        (bytes.toString("ascii", 0, 4) !== "OggS" ||
+          !bytes.subarray(0, 1024).includes(Buffer.from("OpusHead"))))
+    )
+      throw new IntegrationError("elevenlabs_audio_invalido");
+    return bytes;
   }
   async transcribe(
     audio: Buffer,

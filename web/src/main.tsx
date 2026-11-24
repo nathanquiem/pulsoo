@@ -734,6 +734,22 @@ function Connections({
   data: Data;
   editAgent: () => void;
 }) {
+  const [checking, setChecking] = React.useState(false);
+  const [checkResult, setCheckResult] = React.useState("");
+  async function checkVoice() {
+    setChecking(true);
+    try {
+      setCheckResult(
+        (await api<{ message: string }>("/lab/voice-check", {})).message,
+      );
+    } catch (e) {
+      setCheckResult(
+        e instanceof Error ? e.message : "Falha ao verificar voz.",
+      );
+    } finally {
+      setChecking(false);
+    }
+  }
   const audio = data.messages.filter((message) => message.audio).at(-1);
   const notice = data.runtimeJobs
     .filter((job) => job.kind === "notify_human")
@@ -790,7 +806,11 @@ function Connections({
         detail = notice.lastError?.replaceAll("_", " ") ?? item.description;
       }
     } else if (item.id === "elevenlabs")
-      detail = "Prévia de voz no laboratório.";
+      detail = {
+        text: "Respondendo por texto.",
+        adaptive: "Responde por voz quando o contato envia áudio.",
+        audio: "Responde por voz.",
+      }[data.settings.voiceMode];
     else if (!core.includes(item.id))
       detail = item.limitation ?? item.description;
     return (
@@ -817,6 +837,21 @@ function Connections({
           .filter((i): i is IntegrationStatus => !!i)
           .map(row)}
       </section>
+      {!data.demo && (
+        <section className="panel integration-list">
+          <div className="panel-header">
+            <h2>Teste de áudio</h2>
+            <button disabled={checking} onClick={checkVoice}>
+              {checking ? "Verificando…" : "Testar voz e transcrição"}
+            </button>
+          </div>
+          {checkResult && (
+            <p className="form-body" role="status">
+              {checkResult}
+            </p>
+          )}
+        </section>
+      )}
       <details className="panel disclosure integration-list">
         <summary>Outras integrações</summary>
         {data.integrations.filter((i) => !core.includes(i.id)).map(row)}
@@ -1674,6 +1709,9 @@ function Conversations({
                             : m.source === "followup"
                               ? "FOLLOW-UP"
                               : "AGENTE"}
+                          {m.role === "assistant" && m.messageType === "audio"
+                            ? " · VOZ"
+                            : ""}
                           {m.simulated ? " · SIMULADO" : ""}
                         </small>
                         <p>{m.text}</p>

@@ -304,6 +304,9 @@ export type RuntimeJob = Base & {
   responsibleId?: string;
   handoffAckId?: string;
   deliveryParts?: {
+    format?: "voice" | "text";
+    synthesisStarted?: boolean;
+    voiceError?: string;
     text: string;
     state: "pending" | "sending" | "sent";
     messageId?: string;

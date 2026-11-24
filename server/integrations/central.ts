@@ -71,16 +71,37 @@ export class CentralClient {
   }
 
   async sendText(conversationId: string, text: string, intentId: string) {
+    if (!text.trim() || text.length > 4000)
+      throw new IntegrationError("mensagem_invalida");
+    return this.sendMessage(conversationId, { texto: text }, intentId);
+  }
+  async sendVoice(conversationId: string, audio: Buffer, intentId: string) {
+    if (!audio.length || audio.length > 16 * 1024 * 1024)
+      throw new IntegrationError("arquivo_de_audio_invalido");
+    return this.sendMessage(
+      conversationId,
+      {
+        tipo: "audio",
+        arquivo: {
+          nome: "resposta.ogg",
+          mime: "audio/ogg",
+          base64: audio.toString("base64"),
+        },
+      },
+      intentId,
+    );
+  }
+  private async sendMessage(
+    conversationId: string,
+    body: object,
+    intentId: string,
+  ) {
     if (!this.config.key || !this.config.baseUrl)
       throw new IntegrationError("central_nao_configurada");
     const base = new URL(this.config.baseUrl);
     if (base.protocol !== "https:" || base.username || base.password)
       throw new IntegrationError("configuracao_da_central_invalida");
-    if (
-      !/^[a-zA-Z0-9_-]{1,200}$/.test(conversationId) ||
-      text.length > 4000 ||
-      !text.trim()
-    )
+    if (!/^[a-zA-Z0-9_-]{1,200}$/.test(conversationId))
       throw new IntegrationError("mensagem_invalida");
     const result = await this.http.json<{
       mensagem?: { id?: string; status?: string };
@@ -98,7 +119,7 @@ export class CentralClient {
           "Content-Type": "application/json",
           "Idempotency-Key": intentId,
         },
-        body: jsonBody({ texto: text }),
+        body: jsonBody(body),
       },
     );
     if (
