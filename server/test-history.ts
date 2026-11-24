@@ -7,7 +7,10 @@ export function testHistoryRoutes(app: FastifyInstance, store: Store) {
   app.post("/api/test-history/reset", async () =>
     store.transaction(async (tx) => {
       const op = await operation(tx);
-      if (op.agentEnabled || !op.testMode?.enabled)
+      if (
+        !op.testMode?.enabled ||
+        (op.agentEnabled && op.testMode.phones.length !== 1)
+      )
         throw new DomainError("pause_o_agente_e_habilite_teste_restrito", 409);
       const contacts = (await tx.list("contact")).filter((c) =>
         testContactAllowed(op, c),
@@ -17,6 +20,26 @@ export function testHistoryRoutes(app: FastifyInstance, store: Store) {
       const ids = new Set(contacts.map((c) => c.id)),
         records: { kind: string; id: string; data: unknown }[] = contacts.map(
           (data) => ({ kind: "contact", id: data.id, data }),
+        );
+      if (op.agentEnabled && contacts.length !== 1)
+        throw new DomainError(
+          "pause_o_agente_para_limpar_varios_contatos",
+          409,
+        );
+      const pendingOutcome = (await tx.list("runtimeJob")).some(
+        (job) =>
+          ids.has(job.contactId) &&
+          [
+            "running",
+            "dispatching",
+            "unknown",
+            "awaiting_confirmation",
+          ].includes(job.state),
+      );
+      if (pendingOutcome)
+        throw new DomainError(
+          "aguarde_ou_concilie_o_envio_antes_de_reiniciar",
+          409,
         );
       const cvs = (await tx.list("conversation")).filter((c) =>
         ids.has(c.contactId),

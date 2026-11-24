@@ -912,3 +912,77 @@ test("balões preservam parágrafos e retiram marcadores de lista", async () => 
     ["Claro! Eu posso ajudar. A equipe atende na região."],
   );
 });
+
+test("reiniciar o piloto ativo cria novas intenções de envio para a mesma conversa", async (t) => {
+  const f = await fixture();
+  const app = await buildApp(f.config, f.store);
+  t.after(() => app.close());
+  const jobs = () => f.store.transaction((tx) => tx.list("runtimeJob"));
+  const first = (await jobs())[0];
+  await f.store.transaction((tx) =>
+    tx.put("runtimeJob", { ...first, state: "dispatching" }),
+  );
+  assert.equal(
+    (await app.inject({ method: "POST", url: "/api/test-history/reset" }))
+      .statusCode,
+    409,
+  );
+  await f.store.transaction((tx) =>
+    tx.put("runtimeJob", { ...first, state: "done" }),
+  );
+  assert.equal(
+    (await app.inject({ method: "POST", url: "/api/test-history/reset" }))
+      .statusCode,
+    200,
+  );
+  await f.inbound();
+  const second = (await jobs())[0];
+  assert.equal(first.conversationId, second.conversationId);
+  assert.equal(first.cycle, second.cycle);
+  assert.notEqual(first.id, second.id);
+});
+
+test("retenta a leitura temporária do áudio e consulta a mesma transcrição sem criar outra", async () => {
+  const f = await fixture();
+  f.advance(1000);
+  await f.inbound("[Áudio recebido]", "audio");
+  let reads = 0,
+    submits = 0,
+    polls = 0;
+  const deps = {
+    ...f.deps,
+    sender: {
+      ...f.deps.sender,
+      readInboundAudio: async () => {
+        if (++reads === 1)
+          throw new IntegrationError("limite_do_provedor", false, 429);
+        return Buffer.from("audio");
+      },
+    },
+    transcriber: {
+      transcribe: async () => {
+        submits++;
+        return { id: "teste", status: "queued" };
+      },
+      transcript: async (id: string) => {
+        if (++polls === 1) throw new IntegrationError("falha_de_comunicacao");
+        return {
+          id,
+          status: "completed",
+          text: "Preciso de ajuda",
+          audio_duration: 1,
+        };
+      },
+    },
+  };
+  for (const ms of [10000, 15000, 20000, 25000, 25001]) {
+    f.advance(ms);
+    await processRuntime(
+      f.store,
+      { ...f.config, demo: false, assemblyKey: "teste" },
+      deps,
+    );
+  }
+  assert.deepEqual([reads, submits, polls], [2, 1, 2]);
+  assert.ok(f.sends.length > 0);
+});

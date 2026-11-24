@@ -86,7 +86,13 @@ type Data = {
   }[];
 };
 type Tab =
-  "overview" | "contacts" | "agents" | "lab" | "settings" | "resources";
+  | "overview"
+  | "contacts"
+  | "agents"
+  | "lab"
+  | "integrations"
+  | "settings"
+  | "resources";
 function hashTab(): Tab {
   const h = location.hash.slice(1);
   if (["catalog", "proposals", "approvals", "rules"].includes(h))
@@ -97,6 +103,7 @@ function hashTab(): Tab {
     "contacts",
     "agents",
     "lab",
+    "integrations",
     "settings",
     "resources",
   ].includes(h)
@@ -108,6 +115,7 @@ const names: Record<Tab, string> = {
   contacts: "Conversas",
   agents: "Agente",
   lab: "Laboratório",
+  integrations: "Integrações",
   settings: "Configurações",
   resources: "Comercial",
 };
@@ -116,6 +124,7 @@ const icons = {
   contacts: MessagesSquare,
   agents: Bot,
   lab: FlaskConical,
+  integrations: Plug,
   settings: Settings,
   resources: Package,
 };
@@ -369,6 +378,7 @@ function App() {
     "agents",
     ...(commercial ? ["resources" as const] : []),
     "lab",
+    "integrations",
     "settings",
   ];
   const queue = data.runtimeJobs.filter(
@@ -483,31 +493,7 @@ function App() {
         )}
         <div className="content">
           <div className="page-heading">
-            <div>
-              <div className="eyebrow">
-                PULSOO /{" "}
-                {data.operation.modules.proposals
-                  ? "ATENDIMENTO E OPERAÇÃO"
-                  : "CONVERSAS COM PRÓXIMO PASSO"}
-              </div>
-              <h1>{names[tab]}</h1>
-              <p>
-                {
-                  {
-                    overview:
-                      "O essencial para acompanhar o atendimento e as retomadas.",
-                    contacts:
-                      "Contexto, mensagens e follow-ups no mesmo lugar.",
-                    agents:
-                      "Um agente principal, especialistas quando necessário.",
-                    lab: "Teste atendimento e follow-up antes de ativar.",
-                    settings: "Ative somente o que esta operação precisa.",
-                    resources:
-                      "Catálogo e propostas disponíveis para esta operação.",
-                  }[tab]
-                }
-              </p>
-            </div>
+            <h1>{names[tab]}</h1>
             {tab === "overview" && (
               <button onClick={() => go("lab")}>
                 <FlaskConical size={16} />
@@ -546,60 +532,6 @@ function App() {
                   detail="Encaminhamentos, bloqueios e conciliações"
                   icon={ShieldCheck}
                 />
-              </div>
-              <div className="dashboard-grid">
-                <section className="panel">
-                  <div className="panel-header">
-                    <div>
-                      <h2>Follow-up com contexto</h2>
-                      <p>
-                        O Pulsoo organiza a cadência. A Central recebe o
-                        realizado.
-                      </p>
-                    </div>
-                    <Tag tone="coral">QUALIFICAÇÃO</Tag>
-                  </div>
-                  <div className="flow-track">
-                    {[
-                      { name: "Conversa em aberto", icon: MessagesSquare },
-                      { name: "Tempo sem resposta", icon: Clock },
-                      { name: "Retomada pela IA", icon: Bot },
-                      { name: "Registro concluído", icon: CheckCheck },
-                    ].map((s, i) => (
-                      <React.Fragment key={s.name}>
-                        <div className={"flow-step step-" + i}>
-                          <span>
-                            <s.icon size={20} />
-                          </span>
-                          <small>{s.name}</small>
-                        </div>
-                        {i < 3 && (
-                          <span className="flow-connector">
-                            <ArrowRight size={14} />
-                          </span>
-                        )}
-                      </React.Fragment>
-                    ))}
-                  </div>
-                  <div className="panel-foot">
-                    <ShieldCheck size={15} />
-                    Resposta do lead, pausa humana e encerramento interrompem a
-                    cadência.
-                  </div>
-                </section>
-                <section className="panel next-panel">
-                  <span className="coral-icon">
-                    <Bot size={22} />
-                  </span>
-                  <h2>Configure para a sua operação.</h2>
-                  <p>
-                    Qualificação já é um fluxo completo. Catálogo, propostas e
-                    agenda entram quando fizerem sentido.
-                  </p>
-                  <button onClick={() => go("agents")}>
-                    Ajustar agente e follow-up <ArrowUpRight size={16} />
-                  </button>
-                </section>
               </div>
               <section className="panel">
                 <div className="panel-header">
@@ -703,6 +635,9 @@ function App() {
           {tab === "resources" && commercial && (
             <Resources data={data} act={act} busy={busy} />
           )}
+          {tab === "integrations" && (
+            <Connections data={data} editAgent={() => go("agents")} />
+          )}
           {tab === "settings" && (
             <>
               <Modules data={data} act={act} busy={busy} />
@@ -727,46 +662,6 @@ function App() {
               </section>
               <section className="panel disclosure">
                 <details>
-                  <summary>Conexões e ferramentas</summary>
-                  <div className="form-body integration-settings">
-                    {data.integrations
-                      .filter(
-                        (i) =>
-                          !(
-                            [
-                              "google-docs",
-                              "google-drive",
-                              "google-sheets",
-                            ].includes(i.id) &&
-                            !data.operation.modules.proposals
-                          ) &&
-                          !(
-                            ["calendar", "calcom"].includes(i.id) &&
-                            !data.operation.modules.calendar
-                          ),
-                      )
-                      .map((i) => (
-                        <div className="connection-row" key={i.id}>
-                          <span>
-                            <b>{i.name}</b>
-                            <small>{i.description}</small>
-                          </span>
-                          <Tag>
-                            {i.status === "configured"
-                              ? "Credencial configurada"
-                              : "A configurar"}
-                          </Tag>
-                        </div>
-                      ))}
-                    <p className="muted">
-                      Chaves e endereço da Central ficam somente no servidor.
-                      Presença de credencial não significa homologação.
-                    </p>
-                  </div>
-                </details>
-              </section>
-              <section className="panel disclosure">
-                <details>
                   <summary>Consumo e atividade</summary>
                   <div className="form-body">
                     <p>
@@ -781,23 +676,16 @@ function App() {
                       Simulação separada de chamadas pagas. Tarifas e
                       conciliação de fatura ainda não configuradas.
                     </p>
-                    {data.audit
-                      .slice(-8)
-                      .reverse()
-                      .map((a) => (
-                        <p key={a.id}>
-                          {a.action.replaceAll("_", " ")} · {fmt(a.createdAt)}
-                        </p>
-                      ))}
+                    {data.audit.slice(0, 8).map((a) => (
+                      <p key={a.id}>
+                        {a.action.replaceAll("_", " ")} · {fmt(a.createdAt)}
+                      </p>
+                    ))}
                   </div>
                 </details>
               </section>
             </>
           )}
-          <footer className="footer">
-            <span>Pulsoo / sua operação, em movimento.</span>
-            <span>Base em evolução · v0.4</span>
-          </footer>
         </div>
       </main>
       {error && (
@@ -834,9 +722,106 @@ function Stat({
         {title}
         <Icon size={17} />
       </div>
-      <strong>{value.toString().padStart(2, "0")}</strong>
+      <strong>{value}</strong>
       <small>{detail}</small>
     </section>
+  );
+}
+function Connections({
+  data,
+  editAgent,
+}: {
+  data: Data;
+  editAgent: () => void;
+}) {
+  const audio = data.messages.filter((message) => message.audio).at(-1);
+  const notice = data.runtimeJobs
+    .filter((job) => job.kind === "notify_human")
+    .at(-1);
+  const destination = data.operation.workflow?.notification.kind;
+  const core = [
+    "central",
+    "openai",
+    "assemblyai",
+    "human-notification",
+    "elevenlabs",
+  ];
+  function row(item: IntegrationStatus) {
+    let status =
+      item.status === "configured" ? "Credencial presente" : "Falta credencial";
+    let detail = item.description;
+    let issue = false;
+    if (item.id === "assemblyai" && audio?.audio) {
+      const state = audio.audio;
+      status =
+        state.state === "completed"
+          ? "Áudio transcrito"
+          : state.state === "failed"
+            ? "Transcrição falhou"
+            : "Em processamento";
+      issue = state.state === "failed";
+      detail =
+        fmt(audio.occurredAt) +
+        " · " +
+        (state.error?.replaceAll("_", " ") ?? item.description);
+    } else if (item.id === "human-notification") {
+      if (destination !== "webhook") {
+        status = "Desativado no fluxo";
+        detail =
+          "Destino do encaminhamento: " +
+          {
+            none: "painel e notas",
+            contact: "contato",
+            conversation: "conversa",
+            group: "grupo",
+          }[destination ?? "none"];
+      } else if (notice) {
+        status = {
+          done: "Envio confirmado",
+          blocked: "Bloqueado",
+          unknown: "Envio incerto",
+          awaiting_confirmation: "Aguardando confirmação",
+          pending: "Pendente",
+          cancelled: "Cancelado",
+          running: "Em andamento",
+          dispatching: "Em envio",
+        }[notice.state];
+        issue = notice.state === "blocked" || notice.state === "unknown";
+        detail = notice.lastError?.replaceAll("_", " ") ?? item.description;
+      }
+    } else if (item.id === "elevenlabs")
+      detail = "Prévia de voz no laboratório.";
+    else if (!core.includes(item.id))
+      detail = item.limitation ?? item.description;
+    return (
+      <div className="connection-row" key={item.id}>
+        <span>
+          <b>{item.name}</b>
+          <small>{detail}</small>
+        </span>
+        <Tag tone={issue ? "amber" : "neutral"}>{status}</Tag>
+      </div>
+    );
+  }
+  return (
+    <>
+      <section className="panel integration-list">
+        <div className="panel-header">
+          <h2>Atendimento</h2>
+          <button onClick={editAgent}>
+            Configurar agente <ChevronRight size={14} />
+          </button>
+        </div>
+        {core
+          .map((id) => data.integrations.find((i) => i.id === id))
+          .filter((i): i is IntegrationStatus => !!i)
+          .map(row)}
+      </section>
+      <details className="panel disclosure integration-list">
+        <summary>Outras integrações</summary>
+        {data.integrations.filter((i) => !core.includes(i.id)).map(row)}
+      </details>
+    </>
   );
 }
 function Empty({ title, text }: { title: string; text: string }) {
@@ -1562,26 +1547,43 @@ function Conversations({
     : undefined;
   return (
     <>
-      <div className="contact-grid">
-        {data.contacts.map((c) => (
-          <button
-            className="contact-card panel"
-            key={c.id}
-            onClick={() => setSelected(c)}
-          >
-            <span className="avatar">{c.name.slice(0, 2).toUpperCase()}</span>
-            <h3>{c.name}</h3>
-            <Tag>{c.stage}</Tag>
-            {data.conversations.some(
-              (cv) =>
-                cv.contactId === c.id && cv.handoffId && cv.status === "paused",
-            ) && <Tag tone="amber">Aguardando humano</Tag>}
-            <p>{c.notes || "Contexto ainda não registrado."}</p>
-            <div>
-              Abrir conversa <ArrowUpRight size={16} />
-            </div>
-          </button>
-        ))}
+      <div className="inbox-list">
+        {data.contacts.map((c) => {
+          const conversation =
+            data.conversations.find((item) => item.id === c.conversationId) ??
+            data.conversations.find((item) => item.contactId === c.id);
+          return (
+            <button
+              className="inbox-row"
+              key={c.id}
+              onClick={() => setSelected(c)}
+            >
+              <span className="avatar">{c.name.slice(0, 2).toUpperCase()}</span>
+              <span className="inbox-person">
+                <b>{c.name}</b>
+                <small>{c.phone}</small>
+              </span>
+              <span className="inbox-step">
+                {conversation?.flowState?.title}
+              </span>
+              <Tag
+                tone={conversation?.status === "active" ? "green" : "neutral"}
+              >
+                {conversation
+                  ? {
+                      active: "Em atendimento",
+                      paused: conversation.handoffId
+                        ? "Aguardando humano"
+                        : "Pausada",
+                      closed: "Encerrada",
+                      opted_out: "Solicitou parada",
+                    }[conversation.status]
+                  : "Sem conversa"}
+              </Tag>
+              <ChevronRight size={15} aria-hidden="true" />
+            </button>
+          );
+        })}
       </div>
       {!data.contacts.length && (
         <Empty
@@ -1621,7 +1623,7 @@ function Conversations({
                           {h?.noteState === "done"
                             ? "Resumo registrado na Central."
                             : h?.noteState === "blocked"
-                              ? "Nota não confirmada na Central; verifique a chave e o escopo notas:escrever."
+                              ? "Nota não confirmada na Central. Consulte o motivo em Ferramentas e ações."
                               : h?.noteState === "pending"
                                 ? "Registro da nota pendente."
                                 : "Encaminhamento registrado neste painel."}{" "}
@@ -1636,6 +1638,30 @@ function Conversations({
                       </div>
                     );
                   })()}
+                {data.runtimeJobs
+                  .filter(
+                    (j) =>
+                      j.conversationId === cv.id &&
+                      j.kind === "reply" &&
+                      (j.state === "blocked" ||
+                        j.state === "unknown" ||
+                        (j.state === "cancelled" &&
+                          j.lastError !== "lead_respondeu")),
+                  )
+                  .slice(-3)
+                  .reverse()
+                  .map((j) => (
+                    <p className="attempt-status" key={j.id}>
+                      <b>
+                        {j.state === "unknown"
+                          ? "Envio sem confirmação"
+                          : j.state === "cancelled"
+                            ? "Resposta interrompida"
+                            : "Resposta bloqueada"}
+                      </b>{" "}
+                      · {fmt(j.dueAt)} · {j.lastError?.replaceAll("_", " ")}
+                    </p>
+                  ))}
                 <div className="conversation-history">
                   {data.messages
                     .filter((m) => m.conversationId === cv.id)
@@ -1672,7 +1698,6 @@ function Conversations({
                       "record_stage",
                       "record_handoff",
                       "notify_human",
-                      "record_transfer",
                       "record_transfer",
                     ].includes(j.kind),
                 ) && (
@@ -2620,7 +2645,8 @@ function TestHistory({
           <button
             disabled={
               busy ||
-              data.operation.agentEnabled ||
+              (data.operation.agentEnabled &&
+                data.operation.testMode?.phones.length !== 1) ||
               !data.operation.testMode?.enabled
             }
             onClick={() =>
@@ -2630,7 +2656,7 @@ function TestHistory({
               )
             }
           >
-            Limpar memória do teste com cópia
+            Reiniciar atendimento de teste
           </button>
           {data.archives?.map((a) => (
             <div className="connection-row" key={a.id}>

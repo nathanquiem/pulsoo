@@ -41,13 +41,16 @@ export async function prepareAudio(
   let next: NonNullable<ConversationMessage["audio"]>;
   let text = message.text;
   let delay = 0;
+  let reading = false;
   try {
     if (!(await canContinue())) return cancelIfRunning();
     if (!provider) throw new IntegrationError("transcricao_indisponivel");
     if (audio.state === "submitting")
       throw new IntegrationError("criacao_de_transcricao_incerta");
     if (audio.state === "pending") {
+      reading = true;
       const bytes = await provider.read(job.conversationId, message.id);
+      reading = false;
       if (!(await canContinue())) return cancelIfRunning();
       // Se o processo cair durante uma criação, não reenviar o áudio às cegas.
       const claimed = await store.transaction(async (tx) => {
@@ -68,7 +71,9 @@ export async function prepareAudio(
     } else {
       if (now().getTime() - Date.parse(startedAt) >= timeoutMs)
         throw new IntegrationError("tempo_de_transcricao_excedido");
+      reading = true;
       const transcript = await provider.get(audio.transcriptId!);
+      reading = false;
       if (transcript.id !== audio.transcriptId)
         throw new IntegrationError("id_de_transcricao_divergente");
       if (
@@ -87,11 +92,29 @@ export async function prepareAudio(
       } else throw new IntegrationError("audio_sem_transcricao_util");
     }
   } catch (error) {
-    next = {
-      state: "failed",
-      error:
-        error instanceof IntegrationError ? error.code : "falha_na_transcricao",
-    };
+    const retries = audio.readRetries ?? 0;
+    const transient =
+      error instanceof IntegrationError &&
+      (error.code === "falha_de_comunicacao" ||
+        error.httpStatus === 429 ||
+        (error.httpStatus ?? 0) >= 500);
+    if (
+      reading &&
+      transient &&
+      retries < 2 &&
+      now().getTime() - Date.parse(startedAt) < timeoutMs
+    ) {
+      next = { ...audio, startedAt, readRetries: retries + 1 };
+      delay = pollMs * 2 ** retries;
+    } else {
+      next = {
+        state: "failed",
+        error:
+          error instanceof IntegrationError
+            ? error.code
+            : "falha_na_transcricao",
+      };
+    }
   }
   await store.transaction(async (tx) => {
     const fresh = await tx.get("message", message.id);

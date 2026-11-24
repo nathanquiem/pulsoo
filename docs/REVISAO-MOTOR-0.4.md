@@ -23,3 +23,10 @@ A etapa do CRM tinha IDs de destino preenchidos, mas não havia ID da oportunida
 Os testes automatizados usam transportes simulados. A publicação, verificação visual e resultados de laboratório real são registrados após executados em ENTREGA-0.2.md. A Central não foi modificada por esta revisão. Mudar etapa ainda exige oportunidade vinculada, permissão e contrato válido. Aviso n8n depende da URL, segredo e workflow com envio/recibo real. Nenhum contrato preparado equivale a integração homologada.
 
 A primeira verificação com IA real repetiu a dúvida de cobertura com foto simulada: chamou consultar_informacoes, respondeu com a base aprovada e retomou a etapa de localização. A captura está registrada nas evidências da sessão. Ajuste posterior combina confirmações curtas com a frase seguinte quando cabem no mesmo balão e descreve o resultado da consulta sem despejar JSON no painel.
+
+## Atendimento e integrações
+Uma nova memória de conversa recebe um identificador próprio. Respostas, retomadas e mudanças de etapa repetidas dentro da mesma sessão preservam a idempotência. Reiniciar o teste arquiva a memória e cria novas intenções no próximo contato. O piloto restrito a um único telefone permite reiniciar pelo painel com o agente ativo. Envios em andamento ou incertos exigem resolução antes da limpeza.
+
+A tela Integrações mostra o último resultado de áudio entre as mensagens recentes e o estado do aviso à equipe. A conversa mostra falhas e interrupções de resposta. Leituras de mídia e consultas de transcrição admitem duas novas tentativas para falhas transitórias. Criar a transcrição continua sendo uma operação única. A homologação de áudio real depende do contrato em PROMPT-CENTRAL-AUDIO.md.
+
+Referências de desenho: [Chatwoot](https://github.com/chatwoot/chatwoot) para a lista de conversas, [Trigger.dev](https://trigger.dev/docs/errors-retrying) para retentativas por operação e [Fazer AI Agents](https://github.com/fazer-ai/agents/blob/main/docs/graph.md) para separar condições e efeitos do atendimento.

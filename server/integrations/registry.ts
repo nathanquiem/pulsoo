@@ -41,7 +41,7 @@ export function integrations(c: Config): IntegrationStatus[] {
       "Mensageria",
       !!(c.central.key && c.central.baseUrl && c.central.companyId),
       ["Webhook assinado", "Envio de texto", "Idempotência"],
-      "Texto, follow-up e nota de encaminhamento humano disponíveis. Mídia automática ainda não conectada ao motor.",
+      "O recebimento de áudio exige leitura de mídia pela chave de integração da Central.",
     ),
     item(
       "openai",

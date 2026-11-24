@@ -230,6 +230,7 @@ export type Operation = Base & {
   };
 };
 export type Conversation = Base & {
+  sessionId?: string;
   contactId: string;
   stage: string;
   channel: "evolution" | "official" | "unknown";
@@ -264,6 +265,7 @@ export type ConversationMessage = Base & {
     state: "pending" | "submitting" | "processing" | "completed" | "failed";
     startedAt?: string;
     transcriptId?: string;
+    readRetries?: number;
     error?: string;
   };
 };

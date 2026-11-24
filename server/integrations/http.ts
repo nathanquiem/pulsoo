@@ -20,17 +20,20 @@ export class HttpClient {
         redirect: "error",
         signal: init.signal ?? AbortSignal.timeout(20000),
       });
-      if (!result.ok)
+      if (!result.ok) {
+        const knownCode = await providerErrorCode(result);
         throw new IntegrationError(
-          result.status === 401 || result.status === 403
-            ? "credencial_ou_permissao_invalida"
-            : result.status === 429
-              ? "limite_do_provedor"
-              : "provedor_recusou_operacao",
+          knownCode ??
+            (result.status === 401 || result.status === 403
+              ? "credencial_ou_permissao_invalida"
+              : result.status === 429
+                ? "limite_do_provedor"
+                : "provedor_recusou_operacao"),
           !["GET", "HEAD"].includes(init.method ?? "GET") &&
             result.status >= 500,
           result.status,
         );
+      }
       return result;
     } catch (e) {
       if (e instanceof IntegrationError) throw e;
@@ -57,4 +60,47 @@ export function externalId(id: string) {
   if (!/^[\w.@-]{1,200}$/.test(id))
     throw new IntegrationError("identificador_externo_invalido");
   return encodeURIComponent(id);
+}
+
+const safeProviderCodes = new Set([
+  "nota_limite_excedido",
+  "nota_conflitante",
+  "nota_invalida",
+  "nota_indisponivel",
+  "idempotencia_conflitante",
+  "escopo_insuficiente",
+  "empresa_inativa",
+  "automacao_pausada",
+  "contato_nao_encontrado",
+  "conversa_nao_encontrada",
+]);
+async function providerErrorCode(
+  response: Response,
+): Promise<string | undefined> {
+  if (
+    !response.headers.get("content-type")?.includes("application/json") ||
+    !response.body
+  ) {
+    await response.body?.cancel().catch(() => undefined);
+    return;
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > 8192) return;
+      chunks.push(value);
+    }
+    const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return safeProviderCodes.has(body?.erro) ? body.erro : undefined;
+  } catch {
+    return;
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
 }

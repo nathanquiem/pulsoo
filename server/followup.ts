@@ -2,6 +2,7 @@ import type { Operation, Conversation, RuntimeJob } from "../shared/model.js";
 import type { Tx } from "./store.js";
 import { base } from "./domain.js";
 import { operation, isRecordJob, testContactAllowed } from "./operation.js";
+import { randomUUID } from "node:crypto";
 const dayMap: Record<string, number> = {
   Mon: 1,
   Tue: 2,
@@ -86,7 +87,12 @@ export async function armFollowup(
     op.followup,
   ).toISOString();
   const id =
-    "follow:" + conversation.id + ":" + conversation.cycle + ":" + step;
+    "follow:" +
+    (conversation.sessionId ?? conversation.id) +
+    ":" +
+    conversation.cycle +
+    ":" +
+    step;
   if (await tx.get("runtimeJob", id)) return;
   const job: RuntimeJob = {
     ...base(id),
@@ -144,7 +150,7 @@ export async function observeInbound(
   await cancelPending(tx, input.conversationId, "lead_respondeu");
   const optOut = requestedOptOut(input.text);
   const c: Conversation = {
-    ...(previous ?? base(input.conversationId)),
+    ...(previous ?? { ...base(input.conversationId), sessionId: randomUUID() }),
     contactId: input.contactId,
     stage: input.stage,
     channel: input.channel,
@@ -174,7 +180,7 @@ export async function observeInbound(
     testContactAllowed(op, contact)
   )
     await tx.put("runtimeJob", {
-      ...base("reply:" + c.id + ":" + c.cycle),
+      ...base("reply:" + (c.sessionId ?? c.id) + ":" + c.cycle),
       kind: "reply",
       conversationId: c.id,
       contactId: c.contactId,

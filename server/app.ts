@@ -345,6 +345,7 @@ export async function buildApp(c: Config, store: Store) {
         conversations: await tx.list("conversation"),
         handoffs: await tx.list("handoff"),
         messages: (await tx.list("message"))
+          .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
           .slice(-250)
           .map(({ audio, ...message }) => ({
             ...message,
@@ -352,8 +353,12 @@ export async function buildApp(c: Config, store: Store) {
               ? { audio: { state: audio.state, error: audio.error } }
               : {}),
           })),
-        runtimeJobs: await tx.list("runtimeJob"),
-        followups: await tx.list("followup"),
+        runtimeJobs: (await tx.list("runtimeJob")).sort((a, b) =>
+          a.createdAt.localeCompare(b.createdAt),
+        ),
+        followups: (await tx.list("followup")).sort((a, b) =>
+          a.sentAt.localeCompare(b.sentAt),
+        ),
         demo: c.demo,
         storage: store.driver,
         products: await tx.list("product"),
@@ -361,8 +366,12 @@ export async function buildApp(c: Config, store: Store) {
         contacts: await tx.list("contact"),
         proposals: await tx.list("proposal"),
         rules: await tx.list("rule"),
-        usage: (await tx.list("usage")).slice(-200),
-        audit: (await tx.list("audit")).slice(-30).reverse(),
+        usage: (await tx.list("usage"))
+          .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+          .slice(-200),
+        audit: (await tx.list("audit"))
+          .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          .slice(0, 30),
         jobs: await tx.list("job"),
         settings: await tx.get("settings", "agent"),
         integrations: integrations(c),

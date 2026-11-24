@@ -60,7 +60,7 @@ export async function queueStage(
         j.lastError === "oportunidade_ou_etapa_nao_configurada"),
   );
   if (previous) return;
-  const id = "stage:" + cv.id + ":" + cv.cycle + ":" + target;
+  const id = "stage:" + (cv.sessionId ?? cv.id) + ":" + cv.cycle + ":" + target;
   if (await tx.get("runtimeJob", id)) return;
   await tx.put("runtimeJob", {
     ...base(id),
