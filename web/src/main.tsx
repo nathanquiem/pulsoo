@@ -1627,6 +1627,12 @@ function Conversations({
                                 : "Encaminhamento registrado neste painel."}{" "}
                           A automação permanece pausada.
                         </small>
+                        {h?.notificationState === "not_requested" && (
+                          <small>
+                            Aviso à equipe não solicitado. Confira o destino em
+                            Agente → Fluxo e ferramentas.
+                          </small>
+                        )}
                       </div>
                     );
                   })()}
@@ -1645,6 +1651,16 @@ function Conversations({
                           {m.simulated ? " · SIMULADO" : ""}
                         </small>
                         <p>{m.text}</p>
+                        {m.audio && (
+                          <small>
+                            {m.audio.state === "completed"
+                              ? "Áudio transcrito"
+                              : m.audio.state === "failed"
+                                ? "Transcrição indisponível · " +
+                                  m.audio.error?.replaceAll("_", " ")
+                                : "Aguardando transcrição"}
+                          </small>
+                        )}
                         <small>{fmt(m.occurredAt)}</small>
                       </div>
                     ))}

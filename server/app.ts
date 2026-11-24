@@ -344,7 +344,14 @@ export async function buildApp(c: Config, store: Store) {
         })),
         conversations: await tx.list("conversation"),
         handoffs: await tx.list("handoff"),
-        messages: (await tx.list("message")).slice(-250),
+        messages: (await tx.list("message"))
+          .slice(-250)
+          .map(({ audio, ...message }) => ({
+            ...message,
+            ...(audio
+              ? { audio: { state: audio.state, error: audio.error } }
+              : {}),
+          })),
         runtimeJobs: await tx.list("runtimeJob"),
         followups: await tx.list("followup"),
         demo: c.demo,
@@ -703,6 +710,7 @@ export async function buildApp(c: Config, store: Store) {
             allow:
               permitted &&
               ((message.tipo === "texto" && !!string(message.conteudo)) ||
+                message.tipo === "audio" ||
                 (message.tipo === "imagem" &&
                   (!!(await operation(tx)).workflow?.enabled ||
                     !!(await operation(tx)).handoff?.onImage))),

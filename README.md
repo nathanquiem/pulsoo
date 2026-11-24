@@ -71,7 +71,7 @@ Cada chamada registra uso imediatamente, mesmo se uma etapa posterior falhar. Fa
 - O motor reativo e a fila de follow-up estão implementados, com testes de contratos simulados; falta homologação real de ponta a ponta.
 - A entrega real pode dividir respostas em balões, com espera de agrupamento, atraso inicial, intervalo, limite de caracteres e máximo de balões. Cada parte tem confirmação persistida; partes confirmadas não são reenviadas e entrega incerta exige conciliação.
 - Voz: cliente ElevenLabs e prévia real no laboratório. A Central já tem contrato de mídia; síntese e envio automático ainda precisam ser ligados ao motor do Pulsoo.
-- Áudio recebido pausa a geração até conteúdo disponível; AssemblyAI possui cliente, mas transcrição durável ainda não está ligada ao motor.
+- Áudio recebido é transcrito pela AssemblyAI antes da resposta por texto, quando a mídia está acessível. O Pulsoo guarda o ID do trabalho para consultar a mesma transcrição após um reinício. Sem leitura ou transcrição, pede o conteúdo por escrito. A Central precisa expor a rota e conceder o escopo de leitura descritos em [leitura de áudio](docs/PROMPT-CENTRAL-AUDIO.md).
 - Docs/Drive/Sheets/Calendar/Cal.com têm clientes HTTP testados com mocks; OAuth de recursos, ferramentas de escrita, reserva e sincronização ainda não foram liberados ao agente.
 - Propostas geram PDF local; anexos, importação e emissão completa com Google Docs ainda faltam.
 - Encaminhamento humano inclui despedida, pausa local e resumo por campos. Etapas e aviso para equipe são configuráveis. Contexto, grupos, digitando e transferência da conversa dependem do contrato complementar da Central, desligado por padrão. A escrita de notas já usa a API atual; cada instalação exige homologação dos seus recursos.

@@ -217,7 +217,7 @@ test("todas as respostas JSON removem domínio interno, inclusive criação de p
   assert.match(result.json().notes, /endereço interno/);
 });
 
-test("áudio recebido cancela follow-up e aguarda conteúdo antes de gerar resposta", async (t) => {
+test("áudio recebido cancela follow-up e enfileira uma única resposta para transcrição", async (t) => {
   const { app, s, c } = await setup();
   t.after(() => app.close());
   const contactId = randomUUID(),
@@ -295,15 +295,17 @@ test("áudio recebido cancela follow-up e aguarda conteúdo antes de gerar respo
   });
   assert.equal(r.statusCode, 202);
   const jobs = await s.transaction((tx) => tx.list("runtimeJob"));
+  const message = await s.transaction((tx) => tx.get("message", body.mensagem.id));
+  assert.equal(message?.audio?.state, "pending");
   assert.equal(jobs.find((j) => j.id === "follow-audio")?.state, "cancelled");
   assert.equal(
     jobs.filter((j) => j.kind === "reply" && j.state === "pending").length,
-    0,
+    1,
   );
   assert.equal(
     (await s.transaction((tx) => tx.get("conversation", conversationId)))
       ?.status,
-    "paused",
+    "active",
   );
 });
 

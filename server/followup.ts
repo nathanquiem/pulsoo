@@ -102,6 +102,11 @@ export async function armFollowup(
   };
   await tx.put("runtimeJob", job);
 }
+export function requestedOptOut(text: string) {
+  return /\b(pare|parar|remova|remover|descadastrar|nao me (mande|envie)|não me (mande|envie))\b/i.test(
+    text,
+  );
+}
 export async function observeInbound(
   tx: Tx,
   input: {
@@ -131,13 +136,13 @@ export async function observeInbound(
     occurredAt: input.occurredAt,
     source: "central",
     messageType: input.messageType ?? "texto",
+    ...(input.allow && input.messageType === "audio"
+      ? { audio: { state: "pending" as const } }
+      : {}),
   });
   if (stale) return;
   await cancelPending(tx, input.conversationId, "lead_respondeu");
-  const optOut =
-    /\b(pare|parar|remova|remover|descadastrar|nao me (mande|envie)|não me (mande|envie))\b/i.test(
-      input.text,
-    );
+  const optOut = requestedOptOut(input.text);
   const c: Conversation = {
     ...(previous ?? base(input.conversationId)),
     contactId: input.contactId,

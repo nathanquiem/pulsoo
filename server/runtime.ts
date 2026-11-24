@@ -20,6 +20,8 @@ import { processAction } from "./tool-actions.js";
 import { queueStage } from "./workflow.js";
 import { armFollowup, nextBusinessTime } from "./followup.js";
 import { generateAgent, type AgentInput, type AgentResult } from "./agent.js";
+import { prepareAudio } from "./inbound-audio.js";
+import { MediaClient } from "./integrations/media.js";
 import { CentralClient } from "./integrations/central.js";
 import { IntegrationError } from "./integrations/http.js";
 type Sender = {
@@ -29,6 +31,7 @@ type Sender = {
     intentId: string,
   ): Promise<{ mensagem: { id: string; status: string } }>;
   readContext?: CentralClient["readContext"];
+  readInboundAudio?: CentralClient["readInboundAudio"];
   setTyping?: CentralClient["setTyping"];
   transferHuman?: CentralClient["transferHuman"];
   moveStage?: (job: RuntimeJob) => Promise<void>;
@@ -85,6 +88,7 @@ export async function processRuntime(
   c: Config,
   deps: {
     sender?: Sender;
+    transcriber?: Pick<MediaClient, "transcribe" | "transcript">;
     generate?: (input: AgentInput) => Promise<AgentResult>;
     now?: () => Date;
     pause?: (ms: number) => Promise<void>;
@@ -339,6 +343,51 @@ export async function processRuntime(
         .sort((a, b) => a.occurredAt.localeCompare(b.occurredAt))
         .slice(-18),
     }));
+    const canContinue = () =>
+      store.transaction(async (tx) => {
+        const latest = await tx.get("runtimeJob", job.id);
+        const cv = await tx.get("conversation", job.conversationId);
+        const contact = await tx.get("contact", job.contactId);
+        const op = await operation(tx);
+        return (
+          latest?.state === "running" &&
+          cv?.cycle === job.cycle &&
+          cv.status === "active" &&
+          !cv.deliveryUnknown &&
+          !!contact?.automationAllowed &&
+          testContactAllowed(op, contact) &&
+          op.revision === job.policyRevision &&
+          (op.agentEnabled || (c.demo && !!job.demoOnly)) &&
+          (job.kind !== "followup" || op.followup.enabled)
+        );
+      });
+    const currentMessages = context.messages.filter(
+      (m) =>
+        m.role === "user" &&
+        m.occurredAt > (context.conversation?.lastOutboundAt ?? ""),
+    );
+    const audio = currentMessages.find(
+      (m) =>
+        m.audio &&
+        ["pending", "processing", "submitting"].includes(m.audio.state),
+    );
+    if (job.kind === "reply" && !job.deliveryParts && audio) {
+      const media =
+        deps.transcriber ??
+        new MediaClient({ eleven: "", assembly: c.assemblyKey });
+      const provider =
+        !c.demo && c.assemblyKey && sender.readInboundAudio
+          ? {
+              read: sender.readInboundAudio.bind(sender),
+              submit: media.transcribe.bind(media),
+              get: media.transcript.bind(media),
+            }
+          : undefined;
+      await prepareAudio(store, job, audio, provider, canContinue, now);
+      return true;
+    }
+    const fallback =
+      job.kind === "reply" && currentMessages.at(-1)?.audio?.state === "failed";
     const input: AgentInput = {
       messages: context.messages.map((m) => ({
         role: m.role,
@@ -367,43 +416,30 @@ export async function processRuntime(
             m.occurredAt > (context.conversation?.lastOutboundAt ?? ""),
         ),
     };
-    const result = job.deliveryParts
+    const result: Pick<
+      AgentResult,
+      "text" | "reason" | "handoff" | "qualification" | "trace"
+    > = job.deliveryParts
       ? {
           text: job.resultText!,
           reason: "",
           handoff: job.savedHandoff,
           qualification: job.savedQualification,
-          parts: [],
           trace: [],
-          simulated: c.demo,
-          inputTokens: 0,
-          outputTokens: 0,
-          latencyMs: 0,
         }
-      : await (
-          deps.generate ??
-          ((input) =>
-            generateAgent(store, c, input, {
-              canContinue: () =>
-                store.transaction(async (tx) => {
-                  const latest = await tx.get("runtimeJob", job.id);
-                  const cv = await tx.get("conversation", job.conversationId);
-                  const contact = await tx.get("contact", job.contactId);
-                  const op = await operation(tx);
-                  return (
-                    latest?.state === "running" &&
-                    cv?.cycle === job.cycle &&
-                    cv.status === "active" &&
-                    !cv.deliveryUnknown &&
-                    !!contact?.automationAllowed &&
-                    testContactAllowed(op, contact) &&
-                    op.revision === job.policyRevision &&
-                    (op.agentEnabled || (c.demo && !!job.demoOnly)) &&
-                    (job.kind !== "followup" || op.followup.enabled)
-                  );
-                }),
-            }))
-        )(input);
+      : fallback
+        ? {
+            text: "Não consegui ouvir seu áudio por aqui. Pode me contar por escrito?",
+            reason: "audio_indisponivel",
+            trace: [],
+          }
+        : await (
+            deps.generate ??
+            ((input) =>
+              generateAgent(store, c, input, {
+                canContinue,
+              }))
+          )(input);
     const dispatch = await store.transaction(async (tx) => {
       const latest = await tx.get("runtimeJob", job.id),
         conversation = await tx.get("conversation", job.conversationId),
@@ -499,6 +535,7 @@ export async function processRuntime(
         context.op.workflow?.enabled &&
         !conversation.handoffId &&
         !result.handoff &&
+        !fallback &&
         !job.deliveryParts
       )
         await queueStage(
@@ -622,7 +659,7 @@ export async function processRuntime(
               : conversation.followupStep,
         };
         await tx.put("conversation", fresh);
-        if (conversation.cycle === job.cycle && !job.demoOnly)
+        if (conversation.cycle === job.cycle && !job.demoOnly && !fallback)
           await armFollowup(
             tx,
             fresh,

@@ -814,3 +814,101 @@ test("destino humano configurado não volta ao fluxo de qualificação", async (
   assert.equal(calls, 0);
   assert.equal(f.sends.length, 0);
 });
+
+test("processa o áudio antes de responder e retoma a consulta pelo mesmo ID", async () => {
+  const f = await fixture();
+  f.advance(1_000);
+  await f.inbound("[Áudio recebido]", "audio");
+  let submissions = 0;
+  let generations = 0;
+  const config = { ...f.config, demo: false, assemblyKey: "ficticia" };
+  const deps = {
+    ...f.deps,
+    sender: {
+      ...f.deps.sender,
+      readInboundAudio: async () => Buffer.from("audio"),
+    },
+    transcriber: {
+      transcribe: async () => {
+        submissions++;
+        return { id: "transcript-id", status: "queued" };
+      },
+      transcript: async (id: string) => ({
+        id,
+        status: "completed",
+        text: "Quero proteção para meu cachorro.",
+        audio_duration: 2,
+      }),
+    },
+    generate: async (input: Parameters<typeof generateAgent>[2]) => {
+      generations++;
+      assert.deepEqual(
+        input.messages.map((m) => m.content),
+        ["Olá", "Quero proteção para meu cachorro."],
+      );
+      return f.result;
+    },
+  };
+  f.advance(9_001);
+  await processRuntime(f.store, config, deps);
+  assert.equal(generations, 0);
+  await recoverRuntimeJobs(f.store);
+  f.advance(13_002);
+  await processRuntime(f.store, config, deps);
+  await processRuntime(f.store, config, deps);
+  assert.equal(submissions, 1);
+  assert.equal(generations, 1);
+  assert.ok(f.sends.length > 0);
+});
+
+test("áudio indisponível pede texto sem gerar fatos ou avançar etapa", async () => {
+  const f = await fixture();
+  f.advance(1_000);
+  await f.inbound("[Áudio recebido]", "audio");
+  f.advance(9_001);
+  const config = { ...f.config, demo: false, assemblyKey: "ficticia" };
+  const deps = {
+    ...f.deps,
+    sender: {
+      ...f.deps.sender,
+      readInboundAudio: async () => {
+        throw new IntegrationError("audio_indisponivel_na_api_da_central");
+      },
+    },
+    generate: async () => {
+      throw new Error("Não deve chamar o modelo");
+    },
+  };
+  await processRuntime(f.store, config, deps);
+  await processRuntime(f.store, config, deps);
+  assert.deepEqual(f.sends, [
+    "Não consegui ouvir seu áudio por aqui. Pode me contar por escrito?",
+  ]);
+  const jobs = await f.store.transaction((tx) => tx.list("runtimeJob"));
+  assert.ok(
+    !jobs.some((job) => ["record_stage", "followup"].includes(job.kind)),
+  );
+  const messages = await f.store.transaction((tx) => tx.list("message"));
+  assert.equal(
+    messages.find((m) => m.messageType === "audio")?.audio?.error,
+    "audio_indisponivel_na_api_da_central",
+  );
+});
+
+test("balões preservam parágrafos e retiram marcadores de lista", async () => {
+  const { settings } = await fixture();
+  assert.deepEqual(
+    deliveryParts(
+      "Olá! Eu cuido do atendimento.\n\n- Me conte o que você procura.",
+      settings,
+    ),
+    ["Olá! Eu cuido do atendimento.", "Me conte o que você procura."],
+  );
+  assert.deepEqual(
+    deliveryParts(
+      "Claro! Eu posso ajudar. A equipe atende na região.",
+      settings,
+    ),
+    ["Claro! Eu posso ajudar. A equipe atende na região."],
+  );
+});

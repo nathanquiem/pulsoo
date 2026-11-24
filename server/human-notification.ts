@@ -64,20 +64,32 @@ export async function sendHumanNotification(
     throw new IntegrationError("configure_webhook_de_aviso_e_segredo");
   const body = JSON.stringify(notificationPayload(h, c)),
     timestamp = String(Math.floor(Date.now() / 1000));
-  const response = await http.response(c.humanNotification.url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Idempotency-Key": h.id,
-      "X-Pulsoo-Timestamp": timestamp,
-      "X-Pulsoo-Signature": notificationSignature(
-        body,
-        timestamp,
-        c.humanNotification.secret,
-      ),
-    },
-    body,
-  });
+  const response = await http
+    .response(c.humanNotification.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Idempotency-Key": h.id,
+        "X-Pulsoo-Timestamp": timestamp,
+        "X-Pulsoo-Signature": notificationSignature(
+          body,
+          timestamp,
+          c.humanNotification.secret,
+        ),
+      },
+      body,
+    })
+    .catch((e) => {
+      if (e instanceof IntegrationError) {
+        if (e.httpStatus === 404 || e.httpStatus === 405)
+          throw new IntegrationError(
+            "webhook_de_aviso_nao_publicado_ou_rota_incorreta",
+          );
+        if (e.httpStatus === 401 || e.httpStatus === 403)
+          throw new IntegrationError("webhook_de_aviso_rejeitou_autenticacao");
+      }
+      throw e;
+    });
   let data: any;
   try {
     data = await response.json();
@@ -86,7 +98,7 @@ export async function sendHumanNotification(
   }
   if (
     response.status === 200 &&
-    data.notification?.id === h.id &&
+    data?.notification?.id === h.id &&
     data.notification.status === "sent" &&
     typeof data.notification.messageId === "string" &&
     data.notification.messageId.length > 0 &&
@@ -96,7 +108,7 @@ export async function sendHumanNotification(
       status: "sent" as const,
       messageId: data.notification.messageId as string,
     };
-  if (response.status === 202 && data.accepted === true && data.id === h.id)
+  if (response.status === 202 && data?.accepted === true && data.id === h.id)
     return { status: "pending" as const };
   throw new IntegrationError("aviso_nao_confirmado", true);
 }

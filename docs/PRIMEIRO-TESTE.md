@@ -52,7 +52,7 @@ Contratos conferidos no código/guia da Central, sem chamadas remotas nesta sess
 - Notas: POST /api/v1/contatos/{id}/notas; id permanente, conteudo e conversa_id opcional; escopo notas:escrever; acrescenta sem substituir a parte humana. Limite total 3.000 caracteres.
 - Follow-up: POST /api/v1/tarefas/concluidas, após envio confirmado.
 
-Esses contratos ampliam a Central. No Pulsoo, envio automático de mídia e acréscimo de notas ainda precisam de adaptador, intenção persistida, política de uso e homologação. A configuração de voz atual oferece prévia no laboratório; áudio recebido ainda aguarda transcrição durável. Não basta cadastrar uma chave para habilitar essas ações.
+Esses contratos ampliam a Central. No Pulsoo, envio automático de mídia e acréscimo de notas ainda precisam de adaptador, intenção persistida, política de uso e homologação. A configuração de voz atual oferece prévia no laboratório; áudio recebido usa a fila de transcrição quando a Central fornece mídia pelo [contrato de leitura](PROMPT-CENTRAL-AUDIO.md).
 A extensão atual da Central usa Evolution. Não assumir suporte da Cloud API apenas porque existe envio de mídia.
 
 ## Coolify
@@ -77,7 +77,7 @@ Credenciais do primeiro teste:
 - CENTRAL_CHANNEL_MODE=evolution para o primeiro canal atualmente disponível.
 - CENTRAL_FOLLOWUP_RESPONSAVEL_ID: opcional se contato/conversa já têm responsável ativo.
 
-Para a segunda etapa, voz: ELEVENLABS_API_KEY e ELEVENLABS_VOICE_ID. ASSEMBLYAI_API_KEY será usada na transcrição quando ligada ao motor. Google/Cal.com podem esperar pelo respectivo módulo.
+Para a segunda etapa, voz: ELEVENLABS_API_KEY e ELEVENLABS_VOICE_ID. ASSEMBLYAI_API_KEY é usada para transcrever o áudio obtido pela API de mídia. Google/Cal.com podem esperar pelo respectivo módulo.
 
 Salvar como variáveis de runtime/servidor, nunca em VITE_* ou variáveis públicas de build. Não copiar chaves para instruções do agente ou chat. O Compose usa referências, não valores reais. Não substituir o .env da demonstração para esse deploy.
 Conferir ausência de segredos em logs e reiniciar/reimplantar após atualizar variáveis.

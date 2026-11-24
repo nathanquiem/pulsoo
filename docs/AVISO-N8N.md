@@ -7,7 +7,7 @@ No Coolify, somente runtime:
 - HUMAN_NOTIFICATION_WEBHOOK_SECRET: segredo compartilhado de pelo menos 32 caracteres.
 Nunca colocar estas credenciais no prompt ou no frontend. O segredo permanece no servidor e no n8n.
 
-Em Agente > Fluxo e ferramentas > Destino, escolher Webhook de aviso (n8n). O identificador de destino é opcional se o workflow do n8n resolve um destino fixo. Não permitir que texto do lead escolha o destinatário.
+Em Agente > Fluxo e ferramentas > Destino, escolher Webhook de aviso (n8n). O identificador de destino é opcional se o workflow do n8n resolve um destino fixo. Se o painel mostrar “Somente painel e notas”, nenhum aviso será solicitado. O workflow publicado precisa ter o nó de envio e o de resposta, além do gatilho. Não permitir que texto do lead escolha o destinatário.
 
 ## Recebimento
 POST JSON com headers:

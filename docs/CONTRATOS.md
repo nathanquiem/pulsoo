@@ -85,7 +85,7 @@ Criar/copiar/append exige conciliação antes de repetir após timeout. Identida
 ## Outros conectores
 
 - Cal.com: slots e bookings API v2 com versão explícita por endpoint; criação/cancelamento. Disponibilidade não equivale a reserva.
-- AssemblyAI: upload e criação de transcript assíncrono; consulta de estado. Persistência do transcriptId e conclusão durável ainda faltam no motor.
+- AssemblyAI: upload e criação de transcript assíncrono; consulta de estado. O motor persiste o transcriptId e consulta o estado. A leitura da mídia depende do [contrato com a Central](PROMPT-CENTRAL-AUDIO.md).
 - ElevenLabs: síntese TTS com voice_id/model_id. Prévia binária no laboratório; conta, voz e formato precisam ser homologados.
 - OpenAI: Responses API, store=false, ferramenta somente leitura de catálogo, até três rodadas, maxRetries=0 e timeout. Não expõe escrita externa ao modelo neste início.
 

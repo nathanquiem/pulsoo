@@ -26,7 +26,10 @@ export class MediaClient {
     );
     return Buffer.from(await response.arrayBuffer());
   }
-  async transcribe(audio: Buffer) {
+  async transcribe(
+    audio: Buffer,
+    canSubmit: () => Promise<boolean> = async () => true,
+  ) {
     if (!this.keys.assembly)
       throw new IntegrationError("assemblyai_nao_configurada");
     const upload = await this.http.json<{ upload_url: string }>(
@@ -40,6 +43,8 @@ export class MediaClient {
         body: new Uint8Array(audio),
       },
     );
+    if (!(await canSubmit()))
+      throw new IntegrationError("transcricao_cancelada");
     return this.http.json<{ id: string; status: string }>(
       "https://api.assemblyai.com/v2/transcript",
       {

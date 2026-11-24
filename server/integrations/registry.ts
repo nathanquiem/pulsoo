@@ -68,7 +68,7 @@ export function integrations(c: Config): IntegrationStatus[] {
       "Voz",
       !!c.assemblyKey,
       ["Upload de áudio", "Transcrição assíncrona"],
-      "Cliente HTTP implementado; processamento durável da transcrição é próxima etapa.",
+      "A transcrição requer a rota de leitura de mídia e a permissão da Central. Sem acesso ao áudio, o agente pede o conteúdo por texto.",
     ),
     item(
       "google-docs",

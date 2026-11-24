@@ -5,6 +5,71 @@ export class CentralClient {
     private config: Config["central"],
     private http = new HttpClient(),
   ) {}
+  async readInboundAudio(conversationId: string, messageId: string) {
+    if (!this.config.key || !this.config.baseUrl)
+      throw new IntegrationError("central_nao_configurada");
+    const base = new URL(this.config.baseUrl);
+    if (base.protocol !== "https:" || base.username || base.password)
+      throw new IntegrationError("configuracao_da_central_invalida");
+    if (![conversationId, messageId].every((id) => /^[a-f0-9-]{36}$/i.test(id)))
+      throw new IntegrationError("identificador_de_audio_invalido");
+    const url = new URL(
+      "/api/v1/conversas/" +
+        conversationId +
+        "/mensagens/" +
+        messageId +
+        "/midia",
+      base,
+    );
+    const response = await this.http
+      .response(url.href, {
+        headers: {
+          Authorization: "Bearer " + this.config.key,
+          Accept: "audio/*",
+        },
+      })
+      .catch((e) => {
+        if (e instanceof IntegrationError) {
+          if (e.httpStatus === 404 || e.httpStatus === 405)
+            throw new IntegrationError("audio_indisponivel_na_api_da_central");
+          if ([401, 403].includes(e.httpStatus ?? 0))
+            throw new IntegrationError("central_sem_permissao_para_ler_midia");
+        }
+        throw e;
+      });
+    const mime = response.headers.get("content-type")?.split(";")[0];
+    const maxBytes = 16 * 1024 * 1024;
+    if (
+      response.status !== 200 ||
+      !mime ||
+      !/^audio\/(?:ogg|opus|mpeg|mp4|aac|x-m4a|wav|x-wav|webm)$/i.test(mime) ||
+      Number(response.headers.get("content-length")) > maxBytes ||
+      !response.body
+    ) {
+      await response.body?.cancel();
+      throw new IntegrationError("arquivo_de_audio_invalido");
+    }
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let size = 0;
+    try {
+      for (;;) {
+        const chunk = await reader.read();
+        if (chunk.done) break;
+        size += chunk.value.byteLength;
+        if (size > maxBytes) {
+          await reader.cancel();
+          throw new IntegrationError("arquivo_de_audio_excede_limite");
+        }
+        chunks.push(chunk.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    if (!size) throw new IntegrationError("arquivo_de_audio_vazio");
+    return Buffer.concat(chunks, size);
+  }
+
   async sendText(conversationId: string, text: string, intentId: string) {
     if (!this.config.key || !this.config.baseUrl)
       throw new IntegrationError("central_nao_configurada");

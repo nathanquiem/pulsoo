@@ -260,6 +260,12 @@ export type ConversationMessage = Base & {
   centralMessageId?: string;
   simulated?: boolean;
   messageType?: string;
+  audio?: {
+    state: "pending" | "submitting" | "processing" | "completed" | "failed";
+    startedAt?: string;
+    transcriptId?: string;
+    error?: string;
+  };
 };
 export type RuntimeJob = Base & {
   kind:

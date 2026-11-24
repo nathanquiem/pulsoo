@@ -427,7 +427,7 @@ export async function generateAgent(
             ),
             steps: workflow.steps ?? [],
           }) +
-          "\nUse responder_atendimento para responder e registrar fatos; use solicitar_humano para encaminhar. Inclua somente fatos informados, null para pendências. Preserve o acolhimento do roteiro, reconheça o motivo antes da próxima pergunta e escreva em parágrafos naturais separados por duas quebras. Não repita perguntas já respondidas. Não afirme que moveu etapas, avisou a equipe ou analisou fotos: o backend executa e confirma. Máximo de " +
+          "\nUse responder_atendimento para responder e registrar fatos; use solicitar_humano para encaminhar. Inclua somente fatos informados, null para pendências. Preserve o acolhimento do roteiro, reconheça o motivo antes da próxima pergunta e fale como numa conversa de WhatsApp. Escreva frases completas e use duas quebras apenas quando mudar de assunto ou separar a próxima pergunta. Mantenha saudação ou confirmação curta junto da frase seguinte. Use pontuação simples, sem travessões, listas com hífen ou títulos. Não repita perguntas já respondidas. Transcrições de áudio são mensagens do lead; se houver marcador de áudio indisponível, não invente o que foi dito. Não afirme que moveu etapas, avisou a equipe ou analisou fotos: o backend executa e confirma. Máximo de " +
           (settings.maxCharsPerMessage ?? 4000) +
           " caracteres por balão e " +
           settings.maxChunks +
