@@ -103,8 +103,15 @@ async function providerErrorCode(
       chunks.push(value);
     }
     const body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    const code = body?.erro ?? body?.detail?.status;
-    return safeProviderCodes.has(code) ? code : undefined;
+    const detail = body?.detail ?? body?.error;
+    if (
+      detail?.status === "api_key_id_used_as_api_key" ||
+      detail?.code === "api_key_id_used_as_api_key"
+    )
+      return "id_da_chave_usado_no_lugar_do_segredo";
+    return [body?.erro, detail?.status, detail?.code].find((code) =>
+      safeProviderCodes.has(code),
+    );
   } catch {
     return;
   } finally {

@@ -813,6 +813,19 @@ function Connections({
       }[data.settings.voiceMode];
     else if (!core.includes(item.id))
       detail = item.limitation ?? item.description;
+    if (item.id === "elevenlabs") {
+      const latest = data.runtimeJobs
+        .flatMap((j) => j.deliveryParts ?? [])
+        .filter((p) => p.synthesisStarted)
+        .at(-1);
+      if (latest?.voiceError) {
+        issue = true;
+        status = "Falha na síntese";
+        detail = latest.voiceError.replaceAll("_", " ");
+      } else if (latest?.format === "voice" && latest.state === "sent") {
+        status = "Voz enviada";
+      }
+    }
     return (
       <div className="connection-row" key={item.id}>
         <span>
