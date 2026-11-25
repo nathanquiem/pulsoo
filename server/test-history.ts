@@ -26,19 +26,16 @@ export function testHistoryRoutes(app: FastifyInstance, store: Store) {
           "pause_o_agente_para_limpar_varios_contatos",
           409,
         );
-      const pendingOutcome = (await tx.list("runtimeJob")).some(
+      const hasInFlightJob = (await tx.list("runtimeJob")).some(
         (job) =>
           ids.has(job.contactId) &&
-          [
-            "running",
-            "dispatching",
-            "unknown",
-            "awaiting_confirmation",
-          ].includes(job.state),
+          ["running", "dispatching", "awaiting_confirmation"].includes(
+            job.state,
+          ),
       );
-      if (pendingOutcome)
+      if (hasInFlightJob)
         throw new DomainError(
-          "aguarde_ou_concilie_o_envio_antes_de_reiniciar",
+          "aguarde_o_envio_em_andamento_para_reiniciar",
           409,
         );
       const cvs = (await tx.list("conversation")).filter((c) =>

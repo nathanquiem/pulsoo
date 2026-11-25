@@ -927,14 +927,46 @@ test("reiniciar o piloto ativo cria novas intenções de envio para a mesma conv
       .statusCode,
     409,
   );
-  await f.store.transaction((tx) =>
-    tx.put("runtimeJob", { ...first, state: "done" }),
-  );
+  const notice = {
+    ...first,
+    id: "notify:previous",
+    kind: "notify_human" as const,
+    attempts: 1,
+    state: "awaiting_confirmation" as const,
+  };
+  await f.store.transaction(async (tx) => {
+    await tx.put("runtimeJob", { ...first, state: "done" });
+    await tx.put("runtimeJob", notice);
+  });
   assert.equal(
     (await app.inject({ method: "POST", url: "/api/test-history/reset" }))
       .statusCode,
-    200,
+    409,
   );
+  await f.store.transaction((tx) =>
+    tx.put("runtimeJob", {
+      ...notice,
+      state: "unknown",
+      lastError: "aviso_nao_confirmado",
+    }),
+  );
+  const reset = await app.inject({
+    method: "POST",
+    url: "/api/test-history/reset",
+  });
+  assert.equal(reset.statusCode, 200);
+  const archive = await f.store.transaction((tx) =>
+    tx.get("testArchive", reset.json().id),
+  );
+  const archivedNotice = archive?.records.find(
+    (record) => record.id === notice.id,
+  )?.data;
+  assert.deepEqual(archivedNotice, {
+    ...notice,
+    state: "unknown",
+    lastError: "aviso_nao_confirmado",
+  });
+  assert.deepEqual(await jobs(), []);
   await f.inbound();
   const second = (await jobs())[0];
   assert.equal(first.conversationId, second.conversationId);
